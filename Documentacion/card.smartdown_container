@@ -1,0 +1,104 @@
+### 💡 Justificación
+Proveer a la institución de un software analítico que centralice la recolección, procesamiento y visualización de variables clave. La herramienta facilitará la toma de decisiones informadas, mejorará la planificación académica y permitirá anticipar y prevenir casos futuros de abandono estudiantil.
+```
+
+---
+
+## 3. Objetivos del Proyecto
+
+```smartdown/tabs
+### Objetivo General
+Desarrollar un software estadístico y analítico que permita a la Universidad Católica de Oriente realizar un seguimiento continuo y optimizar las estrategias de prevención de la deserción y fomento de la retención estudiantil en niveles de pregrado y postgrado.
+
+### Objetivos Específicos
+1. Identificar y parametrizar las variables clave para el seguimiento de la deserción y retención estudiantil según lineamientos institucionales y del MEN (SPADIES).
+2. Diseñar y construir el software que gestione la extracción, procesamiento analítico y visualización interactiva de dichas variables.
+```
+
+---
+
+## 4. Requerimientos Funcionales y de Arquitectura
+
+```smartdown/checklist
+- [ ] **Gestión de Accesos:** Módulo de administración para configuración y control de credenciales (Usuario/Contraseña) con soporte de roles (*Administrador*, *Analista*).
+- [ ] **Módulo de Consultas y Analítica:** Navegación por menú `Consultas > Analíticas`.
+- [ ] **Filtros Paramétricos:** Selector para Indicador, Nivel de Formación (*Pregrado/Postgrado*), Facultad (*Específica o Todas*) y Programa Académico (*Específico o Todos*).
+- [ ] **Visualización de Resultados:** Procesamiento mediante botón `Generar Consulta` y renderizado de resultados en tablas y reportes analíticos.
+- [ ] **Integración de Datos:** Conexión y consulta sobre el repositorio central Oracle UCO.
+- [ ] **Aspectos Éticos:** Protocolos y control de seguridad para el manejo de información institucional sensible.
+```
+
+---
+
+## 5. Glosario y Definiciones de Estado (Metodología SPADIES)
+
+```smartdown/accordion
+### Estado: Desertor
+Estudiante que de manera voluntaria o forzosa no se observa como matriculado por dos (2) o más períodos académicos consecutivos, sin haber registrado graduación o retiro por causas disciplinarias.
+
+### Estado: Activo / Matriculado
+Estudiante que se encuentra matriculado o que estuvo matriculado en el semestre inmediatamente anterior en un programa académico. Incluye a:
+* **Primíparo / Primer Curso:** Estudiante matriculado por primera vez en un programa.
+* **Ausente:** Estudiante que lleva exactamente un semestre sin matricularse (alto riesgo de deserción).
+
+### Estado: Graduado
+Individuo que ha culminado satisfactoriamente su plan de estudios y ha obtenido el título académico correspondiente.
+
+### Estado: Retirado
+Estudiante que se desvincula de la institución por sanciones o motivos estrictamente disciplinarios (no académicos).
+```
+
+---
+
+## 6. Fórmulas e Indicadores Analíticos
+
+### 1. Tasa de Deserción Anual ($TDA$)
+Mide el comportamiento de la deserción en el corto plazo (respecto a dos periodos atrás):
+
+$$TDA_{t} = \left( \frac{\text{Desertores}_{t}}{\text{Matriculados}_{t-2}} \right) \times 100$$
+
+### 2. Tasa de Deserción por Cohorte ($TDC$)
+Analiza el fenómeno de abandono en estudiantes que iniciaron en el mismo periodo:
+
+$$TDC_{c,s} = \left( \frac{\sum_{s=1}^{S} \text{Desertores}_{c,s}}{\text{Primíparos}_{c}} \right) \times 100$$
+
+*(Donde $c$ es la cohorte y $s$ el semestre de corte).*
+
+### 3. Tasa de Deserción Promedio Acumulada ($TDPA$)
+Refleja la tendencia estructural a largo plazo considerando todas las cohortes históricas:
+
+$$TDPA_{s} = \left( \frac{\sum_{c=1}^{C}\sum_{s=1}^{S} \text{Desertores}_{c,s}}{\sum_{c=1}^{C} \text{Primíparos}_{c}} \right) \times 100$$
+
+### 4. Tasa de Graduación Acumulada ($TGA$)
+Porcentaje acumulado de estudiantes titulados respecto al ingreso histórico:
+
+$$TGA_{s} = \left( \frac{\sum_{c=1}^{C}\sum_{s=1}^{S} \text{Graduados}_{c,s}}{\sum_{c=1}^{C} \text{Primíparos}_{c}} \right) \times 100$$
+
+### 5. Tasa de Ausencia Intersemestral ($TAI$)
+Proporción de estudiantes que se encontraban activos un semestre atrás y entran en estado ausente:
+
+$$TAI_{t} = \left( \frac{\text{Ausentes}_{t}}{\text{Matriculados}_{t-1}} \right) \times 100$$
+
+### 6. Tasa de Supervivencia ($TS$)
+Proporción de estudiantes que se mantienen matriculados tras su ingreso:
+
+$$TS_{s} = \left( \frac{\text{Matriculados}_{s}}{\sum_{c=1}^{C} \text{Primíparos}_{c}} \right) \times 100$$
+
+---
+
+## 7. Plan de Trabajo y Cronograma (5 Meses)
+
+| Actividad | M1 | M2 | M3 | M4 | M5 | Entregable / Producto Esperado |
+| :--- | :---: | :---: | :---: | :---: | :---: | :--- |
+| **Estudio del Sistema** | **X** | | | | | Documento de Especificación de Requisitos |
+| **Diseño Arquitectónico** | | **X** | | | | Documentación de Arquitectura de Software |
+| **Desarrollo de Software** | | | **X** | **X** | **X** | Código fuente del aplicativo |
+| **Implementación** | | | | | **X** | Aplicación web desplegada y operativa |
+| **Pruebas y Validación** | | | | | **X** | Reportes e informe de validación de indicadores |
+
+---
+
+## 8. Referencias
+
+* Ministerio de Educación Nacional (2018). *El Ministerio de Educación Nacional presenta la nueva versión del Sistema para la Prevención y Análisis de la Deserción en las Instituciones de Educación Superior - SPADIES 3.0*. Bogotá D.C.: MEN.
+[cite_start]

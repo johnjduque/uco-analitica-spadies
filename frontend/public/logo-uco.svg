@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 110" width="320" height="110">
+  <defs>
+    <linearGradient id="ucoGreen" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#007a48" />
+      <stop offset="100%" stop-color="#005733" />
+    </linearGradient>
+    <linearGradient id="ucoGold" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#facc15" />
+      <stop offset="100%" stop-color="#eab308" />
+    </linearGradient>
+  </defs>
+
+  <!-- Green Rounded Badge -->
+  <rect x="10" y="10" width="70" height="60" rx="16" fill="url(#ucoGreen)" />
+
+  <!-- White Starburst Rays -->
+  <g fill="#ffffff" transform="translate(45, 40) scale(0.8)">
+    <polygon points="0,-30 5,-10 25,-25 10,-5 30,0 10,5 25,25 5,10 0,30 -5,10 -25,25 -10,5 -30,0 -10,-5 -25,-25 -5,-10" />
+  </g>
+
+  <!-- Central Gold Compass Star -->
+  <g fill="url(#ucoGold)" transform="translate(45, 40) scale(0.85)">
+    <polygon points="0,-32 6,-6 32,0 6,6 0,32 -6,6 -32,0 -6,-6" />
+  </g>
+
+  <!-- UCO Bold Typography -->
+  <text x="92" y="62" font-family="'Arial Black', 'Impact', sans-serif" font-weight="900" font-size="52" fill="#007a48" letter-spacing="-1">UCO</text>
+
+  <!-- Subtitle Text -->
+  <text x="14" y="88" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-weight="800" font-size="14" fill="#1e293b" letter-spacing="0.3">Universidad Católica de Oriente</text>
+  <text x="75" y="103" font-family="'Segoe UI', Arial, sans-serif" font-weight="600" font-size="10" fill="#64748b" letter-spacing="0.6">Vigilada Mineducación</text>
+</svg>

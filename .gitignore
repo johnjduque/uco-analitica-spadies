@@ -1,0 +1,36 @@
+# Entornos virtuales
+.venv/
+venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.sqlite3
+
+# Base de datos local
+datos_uco.db
+*.db
+
+# Subidas temporales y respaldos
+respaldo/
+backend/user_uploads/*
+!backend/user_uploads/.gitkeep
+user_uploads/*
+!user_uploads/.gitkeep
+
+# Node / Frontend
+node_modules/
+frontend/dist/
+frontend/node_modules/
+
+# Entorno y credenciales
+.env
+.env.local
+
+# IDEs y SO
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
