@@ -85,10 +85,10 @@ docker-compose up --build -d
 
 ## 👥 Credenciales de Acceso por Defecto (Entorno de Pruebas)
 
-| Usuario (Cédula) | Contraseña | Rol | Nombre |
+| Usuario | Contraseña | Rol | Nombre |
 | :--- | :--- | :--- | :--- |
 | **admin** | admin123 | Administrador | Administrador Sistema |
-| **1037654321** | 1037654321 | Consultor | Juan Rendon |
+| **consultor** | consultor123 | Consultor | Consultor Académico |
 
 ---
 

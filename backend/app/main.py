@@ -74,18 +74,29 @@ async def lifespan(app: FastAPI):
         # Catálogo de Parámetros
         parameter_service.seed_default_parameters(db)
 
-        # Usuario administrador por defecto si la base de datos está vacía
-        user_count = db.query(User).count()
-        if user_count == 0:
-            default_admin = User(
-                username="1036936749",
-                nombre="John Jairo Duque Zuluaga",
-                password=get_password_hash("1036936749"),
+        # Asegurar usuarios genéricos de entorno de pruebas
+        admin_user = db.query(User).filter(User.username == "admin").first()
+        if not admin_user:
+            admin_user = User(
+                username="admin",
+                nombre="Administrador Sistema",
+                password=get_password_hash("admin123"),
                 role="administrador"
             )
-            db.add(default_admin)
-            db.commit()
-            logger.info("Usuario Administrador inicial creado por defecto (Cédula: 1036936749).")
+            db.add(admin_user)
+            logger.info("Usuario genérico 'admin' creado por defecto.")
+
+        consultor_user = db.query(User).filter(User.username == "consultor").first()
+        if not consultor_user:
+            consultor_user = User(
+                username="consultor",
+                nombre="Consultor Académico",
+                password=get_password_hash("consultor123"),
+                role="consultor"
+            )
+            db.add(consultor_user)
+            logger.info("Usuario genérico 'consultor' creado por defecto.")
+        db.commit()
     except Exception as e:
         logger.error(f"Error en seed inicial: {e}")
     finally:

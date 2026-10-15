@@ -173,9 +173,9 @@ function UserManagement() {
             </label>
             <input
               type="text"
-              placeholder="Ej: 1037654321"
+              placeholder="Ej: 1035000123"
               value={createCedula}
-              onChange={(e) => setCreateCedula(e.target.value.replace(/\D/g, ''))}
+              onChange={(e) => setCreateCedula(e.target.value)}
               style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', background: '#ffffff', color: '#0f172a', border: '1px solid #cbd5e1', boxSizing: 'border-box', outline: 'none' }}
               required
             />
@@ -1336,7 +1336,7 @@ function ChangePasswordView({ initialUsername = '', onSuccessBack = null }) {
             </label>
             <input
               type="text"
-              placeholder="Ej: 1037654321"
+              placeholder="Ej: admin, consultor o cédula"
               value={usernameInput}
               onChange={(e) => setUsernameInput(e.target.value)}
               style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', background: '#ffffff', color: '#0f172a', border: '1px solid #cbd5e1', boxSizing: 'border-box', outline: 'none' }}
@@ -2331,10 +2331,10 @@ function App() {
             <>
               <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
                 <div>
-                  <label style={{ display: 'block', color: '#475569', fontSize: '12px', marginBottom: '6px', fontWeight: '600' }}>Usuario (Número de Cédula):</label>
+                  <label style={{ display: 'block', color: '#475569', fontSize: '12px', marginBottom: '6px', fontWeight: '600' }}>Usuario (Cédula o Cuenta):</label>
                   <input
                     type="text"
-                    placeholder="Ej: 1037654321"
+                    placeholder="Ej: admin, consultor o número de cédula"
                     value={usernameInput}
                     onChange={(e) => setUsernameInput(e.target.value)}
                     style={{ width: '100%', padding: '12px', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#ffffff', color: '#0f172a', fontSize: '14px', outline: 'none', boxSizing: 'border-box' }}

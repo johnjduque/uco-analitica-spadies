@@ -48,11 +48,11 @@ def create_user(
     cedula_limpia = str(cedula).strip()
     nombre_limpio = str(nombre).strip() if nombre else ""
 
-    if not cedula_limpia or not cedula_limpia.isdigit():
+    if not cedula_limpia or not cedula_limpia.isalnum():
         raise AppException("USER_003")
 
-    if len(cedula_limpia) < 5:
-        raise AppException("USER_003", custom_user_message="La cédula debe tener al menos 5 dígitos.")
+    if len(cedula_limpia) < 4:
+        raise AppException("USER_003", custom_user_message="El nombre de usuario o cédula debe tener al menos 4 caracteres.")
 
     role_clean = role.lower() if role else "consultor"
     if role_clean not in ["administrador", "admin", "consultor"]:
@@ -117,7 +117,7 @@ def update_user(
         raise AppException("USER_002")
 
     new_username = str(username).strip()
-    if not new_username.isdigit():
+    if not new_username or not new_username.isalnum():
         raise AppException("USER_003")
 
     # Verificar si otra cuenta ya tiene esa cédula
