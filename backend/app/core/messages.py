@@ -168,11 +168,14 @@ class AppException(Exception):
 
 def format_error_response(code: str, custom_user_message: Optional[str] = None, trace_id: Optional[str] = None) -> Dict[str, Any]:
     catalog_item = CATALOG.get(code, CATALOG["SYS_001"])
+    msg = custom_user_message or catalog_item["user_message"]
     return {
         "success": False,
+        "detail": msg,
+        "message": msg,
         "error": {
             "code": code,
-            "message": custom_user_message or catalog_item["user_message"],
+            "message": msg,
             "trace_id": trace_id
         }
     }

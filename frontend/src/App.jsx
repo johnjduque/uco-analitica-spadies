@@ -362,20 +362,33 @@ function UploadView() {
     fetchLoads();
   }, []);
 
-  // Función para calcular dinámicamente el Siguiente Periodo Requerido (1-2018 a 2-2070)
-  const getNextExpectedPeriod = (history, tipo) => {
-    const loaded = new Set(
-      history.filter(item => item.tipo === tipo).map(item => item.periodo)
+  // Función para calcular dinámicamente el Siguiente Archivo y Periodo Requerido (Alternado estricto)
+  // Matriculados 1-2018 -> Graduados 1-2018 -> Matriculados 2-2018 -> Graduados 2-2018 ...
+  const getNextExpectedLoad = (history) => {
+    const loadedMat = new Set(
+      history.filter(item => item.tipo === 'matriculados').map(item => item.periodo)
     );
+    const loadedGrad = new Set(
+      history.filter(item => item.tipo === 'graduados').map(item => item.periodo)
+    );
+
     let year = 2018;
     let sem = 1;
     while (year <= 2070) {
       const code1 = `${sem}-${year}`;
       const code2 = `${year}-${sem}`;
       const code3 = `${year}`;
-      if (!loaded.has(code1) && !loaded.has(code2) && !loaded.has(code3)) {
-        return code1;
+
+      const hasMat = loadedMat.has(code1) || loadedMat.has(code2) || loadedMat.has(code3);
+      const hasGrad = loadedGrad.has(code1) || loadedGrad.has(code2) || loadedGrad.has(code3);
+
+      if (!hasMat) {
+        return { tipo: 'matriculados', periodo: code1 };
       }
+      if (!hasGrad) {
+        return { tipo: 'graduados', periodo: code1 };
+      }
+
       if (sem === 1) {
         sem = 2;
       } else {
@@ -383,10 +396,19 @@ function UploadView() {
         year += 1;
       }
     }
-    return '2-2070';
+    return { tipo: 'matriculados', periodo: '2-2070' };
   };
 
-  const currentRequiredPeriod = getNextExpectedPeriod(loadsHistory, tipoCargue);
+  const nextRequired = getNextExpectedLoad(loadsHistory);
+  const currentRequiredPeriod = nextRequired.periodo;
+  const currentRequiredTipo = nextRequired.tipo;
+
+  // Sincronizar automáticamente el tipo seleccionado con el paso requerido
+  useEffect(() => {
+    if (currentRequiredTipo && tipoCargue !== currentRequiredTipo) {
+      setTipoCargue(currentRequiredTipo);
+    }
+  }, [currentRequiredTipo]);
 
   const filteredLoads = loadsHistory.filter(load => {
     const q = loadSearchQuery.toLowerCase().trim();
@@ -483,11 +505,12 @@ function UploadView() {
 
         alert(`ℹ️ Siguiente periodo habilitado secuencialmente: ${data.next_expected_period}`);
       } else {
-        alert(data.detail || "Error al procesar el archivo.");
+        const errorText = data.detail || (data.error && data.error.message) || data.message || "Error desconocido al procesar el archivo.";
+        alert(errorText);
       }
     } catch (err) {
       console.error("Error:", err);
-      alert("Error de conexión con el servidor.");
+      alert("Error de conexión con el servidor al intentar procesar el archivo.");
     } finally {
       setLoading(false);
     }
@@ -500,24 +523,26 @@ function UploadView() {
         Sube la información respetando estrictamente la secuencia cronológica consecutiva (1-2018 a 2-2070).
       </p>
 
-      {/* Formulario de Cargue */}
+      {/* Formulario de Cargue con Secuencia Alternada Estricta */}
       <div style={{ background: '#ffffff', padding: '28px', borderRadius: '10px', border: '1px solid #e2e8f0', boxShadow: '0 4px 15px rgba(0, 0, 0, 0.03)', marginBottom: '30px' }}>
         <form onSubmit={handleUpload} style={{ display: 'flex', flexDirection: 'column', gap: '20px', maxWidth: '540px' }}>
           <div>
-            <label style={{ display: 'block', color: '#475569', fontSize: '13px', marginBottom: '6px', fontWeight: '600' }}>Tipo de Información:</label>
+            <label style={{ display: 'block', color: '#475569', fontSize: '13px', marginBottom: '6px', fontWeight: '600' }}>
+              Tipo de Información Requerido (Secuencia Alternada):
+            </label>
             <select
-              value={tipoCargue}
-              onChange={(e) => setTipoCargue(e.target.value)}
-              style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', background: '#ffffff', color: '#0f172a', border: '1px solid #cbd5e1', outline: 'none' }}
+              value={currentRequiredTipo}
+              disabled={true}
+              style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', background: currentRequiredTipo === 'matriculados' ? '#ecfdf5' : '#eff6ff', color: currentRequiredTipo === 'matriculados' ? '#047857' : '#1d4ed8', border: '1px solid #cbd5e1', fontWeight: '700', outline: 'none' }}
             >
-              <option value="matriculados">Estudiantes Matriculados (Por Semestre 1-2018 a 2-2070)</option>
-              <option value="graduados">Estudiantes Graduados (Por Semestre 1-2018 a 2-2070)</option>
+              <option value="matriculados">📋 Estudiantes Matriculados</option>
+              <option value="graduados">🎓 Estudiantes Graduados / Egresados</option>
             </select>
           </div>
 
           <div>
             <label style={{ display: 'block', color: '#475569', fontSize: '13px', marginBottom: '6px', fontWeight: '600' }}>
-              Periodo Semestre a Cargar (Secuencia Estricta):
+              Periodo Semestre Requerido (Secuencia Estricta):
             </label>
             <select
               value={currentRequiredPeriod}
@@ -525,16 +550,21 @@ function UploadView() {
               style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', background: '#ecfdf5', color: '#047857', fontWeight: '700', border: '1px solid #10b981', boxSizing: 'border-box' }}
             >
               <option value={currentRequiredPeriod}>
-                {currentRequiredPeriod} (Periodo Siguiente Requerido)
+                {currentRequiredPeriod} ({currentRequiredTipo === 'matriculados' ? 'Matriculados' : 'Graduados'} Requerido)
               </option>
             </select>
-            <div style={{ marginTop: '10px', fontSize: '12px', color: '#854d0e', background: '#fefce8', border: '1px solid #fde047', padding: '10px 14px', borderRadius: '6px' }}>
-              📌 <strong>Control de Secuencia:</strong> Se muestra y exige únicamente el periodo consecutivo pendiente por cargar (comenzando en <strong>1-2018</strong>). Tras completar el cargue de este archivo, la lista habilitará automáticamente el siguiente periodo (ej: 1-2018 ➔ 2-2018 ➔ 1-2019).
+            <div style={{ marginTop: '10px', fontSize: '12.5px', color: '#854d0e', background: '#fefce8', border: '1px solid #fde047', padding: '12px 14px', borderRadius: '6px', lineHeight: '1.5' }}>
+              📌 <strong>Regla de Integridad de Datos:</strong> Para garantizar la precisión de los 5 indicadores analíticos, el sistema exige estrictamente cargar de forma alternada:
+              <div style={{ marginTop: '6px', fontWeight: 'bold', color: '#047857' }}>
+                Matriculados {currentRequiredPeriod} ➔ Graduados {currentRequiredPeriod} ➔ Matriculados siguiente periodo...
+              </div>
             </div>
           </div>
 
           <div>
-            <label style={{ display: 'block', color: '#475569', fontSize: '13px', marginBottom: '6px', fontWeight: '600' }}>Archivo (.csv, .xls, .xlsx):</label>
+            <label style={{ display: 'block', color: '#475569', fontSize: '13px', marginBottom: '6px', fontWeight: '600' }}>
+              Archivo ({currentRequiredTipo === 'matriculados' ? 'Matriculados' : 'Graduados'} {currentRequiredPeriod} en .csv, .xls, .xlsx):
+            </label>
             <input
               id="file-upload-input"
               type="file"
@@ -548,9 +578,9 @@ function UploadView() {
           <button
             type="submit"
             disabled={loading}
-            style={{ padding: '12px', background: '#047857', color: 'white', border: 'none', borderRadius: '6px', fontWeight: '700', cursor: 'pointer', marginTop: '5px', boxShadow: '0 4px 12px rgba(4, 120, 87, 0.2)' }}
+            style={{ padding: '12px', background: currentRequiredTipo === 'matriculados' ? '#047857' : '#1d4ed8', color: 'white', border: 'none', borderRadius: '6px', fontWeight: '700', cursor: 'pointer', marginTop: '5px', boxShadow: '0 4px 12px rgba(4, 120, 87, 0.2)' }}
           >
-            {loading ? "Procesando e ingresando archivo..." : `Cargar Periodo ${currentRequiredPeriod}`}
+            {loading ? "Procesando e ingresando archivo..." : `Cargar ${currentRequiredTipo === 'matriculados' ? 'Matriculados' : 'Graduados'} (${currentRequiredPeriod})`}
           </button>
         </form>
       </div>
@@ -711,45 +741,65 @@ function IndicatorsView() {
   const indicatorDetails = {
     TDA: {
       title: 'Tasa de Deserción Anual (TDA)',
-      formulaText: 'TDA_t = ( Desertores de t / Matriculados en t - 2 ) * 100',
+      symbol: 'TDA',
+      subscript: 't',
+      numeratorMath: 'Desertores de t',
+      denominatorMath: 'Matriculados en t - 2',
+      multiplier: '× 100',
       description: 'Mide la proporción de estudiantes que cayeron en deserción en el periodo evaluado (t) respecto a los matriculados dos periodos académicos atrás (t - 2).',
-      variableNote: 'Donde t es el periodo evaluado.',
+      variableNote: 'Donde t es el periodo evaluado (ej. 2024-1) y t - 2 corresponde al mismo semestre del año inmediatamente anterior.',
       numerator: 'Desertores de t (estudiantes matriculados en t-2 no matriculados en t-1 ni t)',
       denominator: 'Matriculados en t - 2 (un año antes)',
       focus: 'Deserción de Corto Plazo / Evaluación Anual'
     },
     TDC: {
       title: 'Tasa de Deserción por Cohorte (TDC)',
-      formulaText: 'TDC_{c,s} = ( ∑_{s=1}^S Desertores_{c,s} / Primíparos_c ) * 100',
+      symbol: 'TDC',
+      subscript: 'c, s',
+      numeratorMath: '∑ (s=1 a S) Desertores c,s',
+      denominatorMath: 'Primíparos c',
+      multiplier: '× 100',
       description: 'Evalúa la acumulación progresiva de deserción para una cohorte de ingreso específica (c) a lo largo de sus semestres de permanencia (s).',
-      variableNote: 'Donde c es la cohorte de ingreso y s el semestre de trayectoria.',
+      variableNote: 'Donde c es la cohorte de ingreso y s es el semestre de trayectoria académica alcanzado.',
       numerator: 'Suma acumulada de desertores de la cohorte c hasta el semestre S',
       denominator: 'Primíparos de la cohorte c (estudiantes de primer curso)',
       focus: 'Seguimiento Longitudinal por Cohorte'
     },
     TDPA: {
       title: 'Tasa de Deserción Promedio Acumulada (TDPA)',
-      formulaText: 'TDPA_s = ( ∑_{c=1}^C ∑_{s=1}^S Desertores_{c,s} / ∑_{c=1}^C Primíparos_c ) * 100',
+      symbol: 'TDPA',
+      subscript: 's',
+      numeratorMath: '∑ (c=1 a C) ∑ (s=1 a S) Desertores c,s',
+      denominatorMath: '∑ (c=1 a C) Primíparos c',
+      multiplier: '× 100',
       description: 'Mide la deserción acumulada promedio global considerando todas las cohortes de ingreso (c = 1 ... C) hasta el semestre de trayectoria (s).',
-      variableNote: 'Donde c es la cohorte y s el semestre.',
+      variableNote: 'Donde c es la cohorte y s es el semestre de trayectoria analizado.',
       numerator: 'Suma total de desertores de todas las cohortes hasta el semestre s',
       denominator: 'Suma total de primíparos de todas las cohortes C',
       focus: 'Tendencia Estructural e Institucional'
     },
     TGA: {
       title: 'Tasa de Graduación Acumulada (TGA)',
-      formulaText: 'TGA_s = ( ∑_{c=1}^C ∑_{s=1}^S Graduados_{c,s} / ∑_{c=1}^C Primíparos_c ) * 100',
+      symbol: 'TGA',
+      subscript: 's',
+      numeratorMath: '∑ (c=1 a C) ∑ (s=1 a S) Graduados c,s',
+      denominatorMath: '∑ (c=1 a C) Primíparos c',
+      multiplier: '× 100',
       description: 'Indica la proporción acumulada de estudiantes que han completado exitosamente su plan de estudios y obtenido título hasta el semestre s.',
-      variableNote: 'Donde c es la cohorte y s el semestre.',
+      variableNote: 'Donde c es la cohorte y s es el semestre de trayectoria.',
       numerator: 'Suma acumulada de estudiantes graduados de las cohortes C hasta el semestre s',
       denominator: 'Suma total de primíparos de todas las cohortes C',
       focus: 'Eficacia Institucional y Titulación'
     },
     TAI: {
       title: 'Tasa de Ausencia Intersemestral (TAI)',
-      formulaText: 'TAI_t = ( Ausentes_t / Matriculados_{t-1} ) * 100',
+      symbol: 'TAI',
+      subscript: 't',
+      numeratorMath: 'Ausentes de t',
+      denominatorMath: 'Matriculados en t - 1',
+      multiplier: '× 100',
       description: 'Mide la proporción de estudiantes que estando matriculados en el periodo anterior (t - 1) no registraron matrícula en el periodo actual (t).',
-      variableNote: 'Donde t es el periodo actual evaluado.',
+      variableNote: 'Donde t es el periodo académico actual evaluado y t - 1 es el periodo inmediatamente anterior.',
       numerator: 'Ausentes en el periodo t (no matricularon respecto a t-1)',
       denominator: 'Matriculados en el periodo anterior (t - 1)',
       focus: 'Alerta Temprana y Riesgo de Retiro Inminente'
@@ -912,13 +962,49 @@ function IndicatorsView() {
           </span>
         </div>
 
-        {/* Ecuación Renderizada */}
-        <div style={{ background: '#f8fafc', padding: '20px', borderRadius: '8px', border: '1px solid #cbd5e1', textAlign: 'center', marginBottom: '18px' }}>
-          <div style={{ fontSize: '20px', fontFamily: 'Cambria, "Times New Roman", serif', fontWeight: 'bold', color: '#0f172a', letterSpacing: '0.5px' }}>
-            {currentDetail.formulaText}
+        {/* Ecuación Renderizada con Formato Matemático Elegante y Legible */}
+        <div style={{ background: 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)', padding: '24px 20px', borderRadius: '10px', border: '1px solid #cbd5e1', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', marginBottom: '18px', boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.02)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '14px', flexWrap: 'wrap', fontFamily: 'Cambria, "Times New Roman", "KaTeX_Main", serif', color: '#0f172a' }}>
+            
+            {/* Símbolo del Indicador con Subíndice */}
+            <div style={{ display: 'flex', alignItems: 'baseline', fontSize: '24px', fontWeight: 'bold' }}>
+              <span>{currentDetail.symbol}</span>
+              {currentDetail.subscript && (
+                <sub style={{ fontSize: '15px', color: '#047857', marginLeft: '2px', fontWeight: 'bold' }}>
+                  {currentDetail.subscript}
+                </sub>
+              )}
+            </div>
+
+            {/* Signo Igual */}
+            <span style={{ fontSize: '24px', fontWeight: 'bold', color: '#475569' }}>=</span>
+
+            {/* Fracción Matemática (Numerador sobre Denominador) */}
+            <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', verticalAlign: 'middle', margin: '0 6px' }}>
+              {/* Numerador */}
+              <div style={{ padding: '0 12px 6px 12px', fontSize: '18px', fontWeight: '600', color: '#1e293b', textAlign: 'center' }}>
+                {currentDetail.numeratorMath}
+              </div>
+              
+              {/* Línea Divisoria de Fracción */}
+              <div style={{ width: '100%', minWidth: '160px', height: '2px', background: '#334155', borderRadius: '2px' }} />
+              
+              {/* Denominador */}
+              <div style={{ padding: '6px 12px 0 12px', fontSize: '18px', fontWeight: '600', color: '#1e293b', textAlign: 'center' }}>
+                {currentDetail.denominatorMath}
+              </div>
+            </div>
+
+            {/* Multiplicador Porcentaje */}
+            <span style={{ fontSize: '22px', fontWeight: 'bold', color: '#047857', marginLeft: '4px' }}>
+              {currentDetail.multiplier}
+            </span>
+
           </div>
-          <div style={{ marginTop: '8px', fontSize: '13px', color: '#854d0e', fontStyle: 'italic', fontWeight: '600' }}>
-            {currentDetail.variableNote}
+
+          {/* Nota descriptiva de las variables */}
+          <div style={{ marginTop: '14px', fontSize: '13px', color: '#854d0e', fontStyle: 'italic', fontWeight: '600', textAlign: 'center', background: '#fefce8', padding: '6px 16px', borderRadius: '20px', border: '1px solid #fef08a' }}>
+            💡 {currentDetail.variableNote}
           </div>
         </div>
 
@@ -978,11 +1064,11 @@ function IndicatorTableResult({ selectedIndicator, selectedPrograms = [], allPro
     scopeText = `🎓 Multiprograma (${selectedPrograms.length} programas): ${selectedPrograms.slice(0, 3).join(', ')}${selectedPrograms.length > 3 ? ` y ${selectedPrograms.length - 3} más` : ''}`;
   }
 
-  const tdcColumns = ['S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7', 'S8', 'S9', 'S10', 'S11', 'S12', 'S13', 'S14', 'S15', 'S16', 'S17'];
-  const tdpaColumns = ['S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7', 'S8', 'S9', 'S10', 'S11', 'S12', 'S13', 'S14', 'S15', 'S16', 'S17'];
-  const tdaPeriods = (computedData && computedData.periods) ? computedData.periods : [];
-  const tgaColumns = ['S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7', 'S8', 'S9', 'S10', 'S11', 'S12', 'S13', 'S14', 'S15', 'S16', 'S17'];
-  const taiPeriods = (computedData && computedData.periods) ? computedData.periods : [];
+  const tdcColumns = ['S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7', 'S8', 'S9', 'S10', 'S11', 'S12', 'S13', 'S14', 'S15', 'S16', 'S17', 'S18', 'S19', 'S20'];
+  const tdpaColumns = ['S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7', 'S8', 'S9', 'S10', 'S11', 'S12', 'S13', 'S14', 'S15', 'S16', 'S17', 'S18', 'S19', 'S20'];
+  const tdaPeriods = (computedData && computedData.periods) ? computedData.periods.slice(-20) : [];
+  const tgaColumns = ['S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7', 'S8', 'S9', 'S10', 'S11', 'S12', 'S13', 'S14', 'S15', 'S16', 'S17', 'S18', 'S19', 'S20'];
+  const taiPeriods = (computedData && computedData.periods) ? computedData.periods.slice(-20) : [];
 
   // Datos reales calculados por el motor SPADIES según los períodos efectivamente cargados
   const tdcData = (computedData && Array.isArray(computedData)) ? computedData : [];

@@ -25,9 +25,14 @@ def get_loads(db: Session = Depends(get_db)):
     return load_service.get_all_loads(db)
 
 @router.get("/next-expected-period")
-def get_next_period_info(tipo: str = "matriculados", db: Session = Depends(get_db)):
-    next_p = load_service.get_next_expected_period(db, tipo)
-    return {"tipo": tipo, "next_period": next_p}
+def get_next_period_info(tipo: Optional[str] = None, db: Session = Depends(get_db)):
+    next_load = load_service.get_next_expected_load(db)
+    return {
+        "tipo": next_load["tipo"],
+        "next_period": next_load["periodo"],
+        "expected_tipo": next_load["tipo"],
+        "expected_periodo": next_load["periodo"]
+    }
 
 @router.post("/upload-period")
 async def upload_period(

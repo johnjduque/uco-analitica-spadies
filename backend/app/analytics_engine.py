@@ -181,45 +181,87 @@ def load_all_dataset(selected_programs=None):
 def calculate_spadies_metrics(selected_programs=None):
     """
     Calcula dinámicamente las 5 matrices SPADIES (TDC, TDPA, TDA, TGA, TAI).
-    Aplica la regla de graduación cronológica y la regla de deserción SPADIES (2 ausencias consecutivas).
-    Solo evalúa los períodos efectivamente cargados en el repositorio de cargas del usuario.
+    Reglas metodológicas rigurosas implementadas:
+    1. Ventana de 10 años / 20 semestres (S1 ... S20).
+    2. Exclusión de Graduados: Ningún estudiante graduado se cuenta como desertor ni ausente
+       (al graduarse, se borra/anula toda condición previa de deserción).
+    3. Seguimiento de Cohorte Multiprograma: Un estudiante en una cohorte de programa A
+       se cuenta como desertor en el programa A si se retira, incluso si ingresó a otro programa B.
+       En el programa B ingresará como cohorte de B.
+    4. Reingreso vs. Nuevo Estudiante: Si un estudiante se retira del mismo programa y reingresa
+       antes del quinto semestre (hasta 4 semestres continuos sin matricular), se computa como
+       reingreso en su cohorte original (no primíparo nuevo). Si pasan 5 o más semestres, ingresa como nuevo.
+    5. TAI (Ausencia Intersemestral): Excluye estrictamente a los nuevos estudiantes (primíparos del periodo actual)
+       y a los graduados.
     """
     ds = load_all_dataset(selected_programs)
     all_periods = ds['all_periods']
     
-    # Si no hay periodos cargados, retornar matrices vacías
+    # Limitar ventana de análisis a 20 semestres (10 años)
+    if len(all_periods) > 20:
+        all_periods = all_periods[-20:]
+
+    # Ventana de 20 semestres (S1 ... S20)
+    SEMESTER_RANGE = range(1, 21)
+
+    # Si no hay periodos cargados, retornar matrices vacías con 20 semestres
     if not all_periods:
         return {
             'TDC': [],
-            'TDPA': {f'S{s}': '—' for s in range(1, 18)},
+            'TDPA': {f'S{s}': '—' for s in SEMESTER_RANGE},
             'TDA': {'periods': [], 'rows': []},
-            'TGA': {f'S{s}': '—' for s in range(1, 18)},
+            'TGA': {f'S{s}': '—' for s in SEMESTER_RANGE},
             'TAI': {'periods': [], 'rows': []}
         }
 
     is_global = ds['is_global']
     enrollments = ds['enrollments']
-    students_first_period = ds['students_first_period']
     graduados_period = ds['graduados_period']
     graduados_by_program_period = ds['graduados_by_program_period']
     total_graduados_cargados = len(ds['graduados'])
 
-    # 1. Matriz TDC y TGA por Cohorte
+    # Reconstruir las cohortes de primíparos con la regla de Reingreso (antes del 5to semestre sin matricular)
+    # y separación por programa si no es global
+    # cohort_primiparos: cohorte -> list of dicts: {'doc': doc, 'prog': prog}
+    cohort_primiparos = {p: [] for p in all_periods}
+    student_program_history = {} # (doc, prog) -> list of periods enrolled
+
+    for p in all_periods:
+        current_enrolled = enrollments.get(p, [])
+        for entry in current_enrolled:
+            doc = entry['doc']
+            prog = entry['prog']
+            key = (doc, prog)
+
+            if key not in student_program_history:
+                student_program_history[key] = [p]
+                cohort_primiparos[p].append({'doc': doc, 'prog': prog})
+            else:
+                prev_p = student_program_history[key][-1]
+                student_program_history[key].append(p)
+                # Evaluar semestres de ausencia entre matrículas consecutivas
+                p_idx_prev = period_index(prev_p)
+                p_idx_curr = period_index(p)
+                # Cada periodo son 6 meses; la diferencia en semestres es p_idx_curr - p_idx_prev
+                diff_semestres = p_idx_curr - p_idx_prev
+                # Si estuvo 5 o más semestres por fuera (diff_semestres > 4), ingresa como nuevo estudiante
+                if diff_semestres >= 5:
+                    cohort_primiparos[p].append({'doc': doc, 'prog': prog})
+
+    # 1. Matriz TDC (Tasa de Deserción por Cohorte) y TGA (Tasa de Graduación)
     tdc_matrix = []
-    
-    total_primiparos_by_s = {s_idx: 0 for s_idx in range(1, 18)}
-    total_deserters_by_s = {s_idx: 0 for s_idx in range(1, 18)}
-    total_graduates_by_s = {s_idx: 0 for s_idx in range(1, 18)}
+    total_primiparos_by_s = {s_idx: 0 for s_idx in SEMESTER_RANGE}
+    total_deserters_by_s = {s_idx: 0 for s_idx in SEMESTER_RANGE}
+    total_graduates_by_s = {s_idx: 0 for s_idx in SEMESTER_RANGE}
 
     for c_idx, cohorte in enumerate(all_periods):
-        cohorte_students = [doc for doc, info in students_first_period.items() if info['period'] == cohorte]
-        total_primiparos = len(cohorte_students)
+        cohorte_entries = cohort_primiparos[cohorte]
+        total_primiparos = len(cohorte_entries)
 
         row = {'cohorte': cohorte}
-        
-        for sem_num in range(1, 18):
+
+        for sem_num in SEMESTER_RANGE:
             target_p_idx = c_idx + (sem_num - 1)
-            # Si el semestre objetivo no existe en los períodos cargados, es '—'
             if target_p_idx >= len(all_periods):
                 row[f'S{sem_num}'] = '—'
                 continue
@@ -238,25 +280,37 @@ def calculate_spadies_metrics(selected_programs=None):
             deserters_count = 0
             graduates_count = 0
 
-            for doc in cohorte_students:
-                p_grad = graduados_period.get(doc) if is_global else graduados_by_program_period.get((doc, students_first_period[doc]['prog']))
+            for entry in cohorte_entries:
+                doc = entry['doc']
+                prog = entry['prog']
+
+                # Verificar si el estudiante se graduó
+                # En alcance institucional o por programa:
+                p_grad = graduados_period.get(doc) if is_global else graduados_by_program_period.get((doc, prog))
                 
-                # Graduado en o antes del periodo objetivo
+                # Regla 2: Si el estudiante ya se graduó (en o antes de este periodo o en general),
+                # SALE COMPLETAMENTE DEL CÁLCULO DE DESERCIÓN (se anula/borra deserción)
                 if p_grad and is_period_on_or_before(p_grad, target_period):
                     graduates_count += 1
                     continue
 
-                # Criterio oficial SPADIES 3.0 de deserción:
-                # Estudiante que no se observa matriculado por dos o más períodos consecutivos.
+                # Si no está graduado, verificar actividad en los últimos 2 periodos en SU PROGRAMA
+                # (o en cualquier programa si es visión global)
                 recent_periods = all_periods[max(0, target_p_idx-1): target_p_idx+1]
                 was_active = False
+
                 for rp in recent_periods:
-                    active_docs = {e['doc'] for e in enrollments[rp]}
-                    if doc in active_docs:
-                        was_active = True
+                    rp_enrollments = enrollments.get(rp, [])
+                    for enr in rp_enrollments:
+                        if enr['doc'] == doc:
+                            if is_global or enr['prog'] == prog:
+                                was_active = True
+                                break
+                    if was_active:
                         break
 
                 if not was_active:
+                    # No activo y no graduado -> se cuenta como desertor de su cohorte
                     deserters_count += 1
 
             pct_deserters = (deserters_count / total_primiparos) * 100
@@ -268,9 +322,9 @@ def calculate_spadies_metrics(selected_programs=None):
 
         tdc_matrix.append(row)
 
-    # 2. Matriz TDPA (Tasa de Deserción Promedio Acumulada)
+    # 2. Matriz TDPA (Tasa de Deserción Promedio Acumulada - S1 a S20)
     tdpa_row = {}
-    for sem_num in range(1, 18):
+    for sem_num in SEMESTER_RANGE:
         denom = total_primiparos_by_s[sem_num]
         if denom > 0:
             pct = (total_deserters_by_s[sem_num] / denom) * 100
@@ -278,9 +332,9 @@ def calculate_spadies_metrics(selected_programs=None):
         else:
             tdpa_row[f'S{sem_num}'] = '—'
 
-    # 3. Matriz TGA (Tasa de Graduación Acumulada)
+    # 3. Matriz TGA (Tasa de Graduación Acumulada - S1 a S20)
     tga_row = {}
-    for sem_num in range(1, 18):
+    for sem_num in SEMESTER_RANGE:
         denom = total_primiparos_by_s[sem_num]
         if denom > 0:
             if total_graduados_cargados == 0:
@@ -293,7 +347,7 @@ def calculate_spadies_metrics(selected_programs=None):
 
     # 4. Matriz TDA (Tasa de Deserción Anual)
     # TDA_t = (Desertores en t / Matriculados en t-2) * 100
-    # Requiere período t-2. Si p_idx < 2, no es calculable ('—').
+    # Requiere período t-2. Graduados no se cuentan como desertores.
     tda_desercion_vals = []
     tda_retencion_vals = []
 
@@ -304,8 +358,8 @@ def calculate_spadies_metrics(selected_programs=None):
             continue
 
         prev_2_period = all_periods[p_idx - 2]
-        base_docs = {e['doc'] for e in enrollments[prev_2_period]}
-        curr_docs = {e['doc'] for e in enrollments[p]}
+        base_docs = {e['doc'] for e in enrollments.get(prev_2_period, [])}
+        curr_docs = {e['doc'] for e in enrollments.get(p, [])}
 
         if len(base_docs) == 0:
             tda_desercion_vals.append('0.00%')
@@ -316,11 +370,12 @@ def calculate_spadies_metrics(selected_programs=None):
         for doc in base_docs:
             p_grad = graduados_period.get(doc)
             graduated_by_p = is_period_on_or_before(p_grad, p) if p_grad else False
+            # Regla de graduación: Si ya se graduó, sale del cálculo de desertores
             if doc not in curr_docs and not graduated_by_p:
                 deserters += 1
 
         tda_pct = (deserters / len(base_docs)) * 100
-        ret_pct = 100.0 - tda_pct
+        ret_pct = max(0.0, 100.0 - tda_pct)
 
         tda_desercion_vals.append(f"{tda_pct:.2f}%")
         tda_retencion_vals.append(f"{ret_pct:.2f}%")
@@ -332,7 +387,8 @@ def calculate_spadies_metrics(selected_programs=None):
 
     # 5. Matriz TAI (Tasa de Ausencia Intersemestral)
     # TAI_t = (Ausentes en t / Matriculados en t-1) * 100
-    # Requiere período t-1. Para el primer período (p_idx == 0) no es calculable ('—').
+    # Regla: NO se tienen en cuenta los nuevos (los primíparos de t no estaban en t-1).
+    # Tampoco se cuentan como ausentes los estudiantes que se graduaron.
     tai_ausentismo_vals = []
     tai_retencion_vals = []
 
@@ -343,8 +399,8 @@ def calculate_spadies_metrics(selected_programs=None):
             continue
 
         prev_period = all_periods[p_idx - 1]
-        base_docs = {e['doc'] for e in enrollments[prev_period]}
-        curr_docs = {e['doc'] for e in enrollments[p]}
+        base_docs = {e['doc'] for e in enrollments.get(prev_period, [])}
+        curr_docs = {e['doc'] for e in enrollments.get(p, [])}
 
         if len(base_docs) == 0:
             tai_ausentismo_vals.append('0.00%')
@@ -355,11 +411,12 @@ def calculate_spadies_metrics(selected_programs=None):
         for doc in base_docs:
             p_grad = graduados_period.get(doc)
             graduated_by_p = is_period_on_or_before(p_grad, p) if p_grad else False
+            # Si se graduó, no se cuenta como ausente
             if doc not in curr_docs and not graduated_by_p:
                 absent += 1
 
         aus_pct = (absent / len(base_docs)) * 100
-        ret_pct = 100.0 - aus_pct
+        ret_pct = max(0.0, 100.0 - aus_pct)
 
         tai_ausentismo_vals.append(f"{aus_pct:.2f}%")
         tai_retencion_vals.append(f"{ret_pct:.2f}%")
