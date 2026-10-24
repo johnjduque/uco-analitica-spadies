@@ -9,8 +9,9 @@ Capas:
 """
 
 import logging
+import os
 import uuid
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
@@ -30,7 +31,29 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(na
 logger = logging.getLogger("uco_analytics.main")
 
 
+@contextmanager
+def _startup_lock():
+    """Serializa el arranque entre workers del mismo servidor (evita crear tablas y admin dos veces)."""
+    lock_file = open(Path(settings.PERSISTENT_DIR) / ".startup.lock", "a+b")
+    try:
+        if os.name == "nt":
+            import msvcrt
+            lock_file.seek(0)
+            msvcrt.locking(lock_file.fileno(), msvcrt.LK_LOCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(lock_file, fcntl.LOCK_EX)
+        yield
+    finally:
+        lock_file.close()  # cerrar el archivo libera el bloqueo
+
+
 def initialize_database() -> None:
+    with _startup_lock():
+        _initialize_database()
+
+
+def _initialize_database() -> None:
     sync_schema(engine)
     db = SessionLocal()
     try:

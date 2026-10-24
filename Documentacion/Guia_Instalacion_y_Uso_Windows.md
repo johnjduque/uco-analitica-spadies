@@ -75,6 +75,32 @@ Menú **Estado por estudiante**: resumen de Activos, Desertores y Graduados; lis
 ### A8. Actualizar a una nueva versión
 Ejecute el nuevo instalador sobre la instalación existente. La base de datos y los usuarios se conservan. Al iniciar, la aplicación actualiza la estructura de la base automáticamente.
 
+### A9. Varios usuarios viendo la misma información
+
+Cada instalación tiene **su propia base de datos**: dos PC con el instalador no comparten datos. Para que todos vean lo mismo hay dos caminos:
+
+**Opción 1. Un PC hace de servidor en la red interna (sin costo).**
+1. Instale la aplicación en un solo PC que permanezca encendido (el "PC servidor") y cargue allí la información.
+2. En ese PC, cree el archivo `%LOCALAPPDATA%\UCO_Analytics\.env` con este contenido y reinicie la aplicación:
+   ```
+   APP_HOST=0.0.0.0
+   APP_PORT=8000
+   ```
+3. Permita el puerto en el firewall (PowerShell como administrador):
+   ```powershell
+   New-NetFirewallRule -DisplayName "UCO Analytics" -Direction Inbound -Protocol TCP -LocalPort 8000 -Action Allow -Profile Private,Domain
+   ```
+4. Averigüe la IP del PC servidor (`ipconfig`, línea *Dirección IPv4*). Idealmente pídale a TI una IP fija.
+5. Desde cualquier PC o celular **conectado a la misma red/WiFi**, abra `http://IP-DEL-PC-SERVIDOR:8000` e ingrese con su usuario.
+6. Cree un usuario por persona (menú **Usuarios**). Nadie necesita instalar nada.
+
+Limitaciones: funciona mientras el PC servidor esté encendido y con la aplicación abierta; el tráfico va sin cifrar (HTTP), por lo que solo debe usarse dentro de una red interna de confianza; no es accesible desde fuera de la universidad.
+
+**Opción 2. Servidor con Docker y HTTPS (recomendada).** Acceso desde cualquier lugar, base SQL Server y certificado automático. Ver la sección *Instalación en servidor* del `README.md`.
+
+### A10. Uso desde el celular
+No hay aplicación que instalar: abra la dirección del sistema en el navegador del celular (`https://su-dominio` con la opción 2, o `http://IP:8000` con la opción 1 estando en la misma WiFi). El menú se despliega con el botón ☰.
+
 ---
 
 ## Parte B. Desarrollo: ejecutar desde el código
