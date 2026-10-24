@@ -1,95 +1,92 @@
-# Fórmulas de Indicadores Analíticos de Deserción (SPADIES 3.0 - UCO)
+# Fórmulas y reglas de cálculo de los indicadores (SPADIES 3.0 · UCO)
 
-Documentación técnica y matemática de las fórmulas estándar para el cálculo de indicadores de permanencia, deserción, ausencia y graduación en la **Universidad Católica de Oriente (UCO)**, basándose en la metodología **SPADIES 3.0 (Ministerio de Educación Nacional)**.
+Este documento describe exactamente cómo calcula UCO Analytics cada indicador. Las reglas se validaron contra las
+exportaciones oficiales de SPADIES para la UCO (pregrado, 2018-1 a 2024-2) y reproducen sus cifras con un error medio
+menor a 1 punto porcentual. La prueba automática `backend/tests/test_spadies_validation.py` verifica esta
+coincidencia.
 
----
+## Insumos
 
-## 1. Tasa de Deserción Anual ($TDA_t$)
+| Archivo | Uso |
+|---|---|
+| Matriculados (por semestre) | Población matriculada de cada periodo. |
+| Matriculados nuevos (por semestre) | **Primíparos**: definen la cohorte de ingreso. |
+| Egresados (por semestre o por año) | Graduados. El semestre se toma del **mes de la fecha de grado** (enero–junio = 1, julio–diciembre = 2). |
 
-Mide el comportamiento de la deserción en el corto plazo respecto a dos periodos académicos atrás ($t-2$). Evalúa cuántos estudiantes matriculados hace un año cayeron en estado de deserción en el periodo evaluado.
+Periodos en formato `AAAA-S`, en serie consecutiva.
 
-### Fórmulas Matemática
-$$TDA_t = \frac{\text{Desertores de } t}{\text{Matriculados en } t - 2} \times 100$$
+## Nivel de formación y tipo de cálculo
 
-### Definición de Variables:
-* **$t$**: Periodo académico evaluado (ej. 2024-1).
-* **$\text{Desertores de } t$**: Estudiantes matriculados en $t-2$ que no registraron matrícula ni en $t-1$ ni en $t$, y que no han obtenido el título de graduación.
-* **$\text{Matriculados en } t - 2$**: Total de estudiantes matriculados en la institución o programa dos periodos atrás (un año antes).
+- **Nivel**: pregrado, posgrado o ambos, según el nivel de cada programa en el Catálogo de programas. SPADIES solo
+  publica pregrado; posgrado usa las mismas reglas sin referencia oficial.
+- **Tipo de cálculo** (igual que SPADIES 3.0):
+  - **Institución (IES)**: el estudiante se identifica por su documento. Cambiar de programa dentro de la UCO no es
+    deserción.
+  - **Programa**: el estudiante se identifica por documento + programa. Salir del programa es deserción del programa,
+    aunque continúe en otro.
+- **Filtro de programas**: limita la población (matriculados base, cohortes y graduados) a los programas elegidos.
+  En la vista IES, la ausencia se evalúa en toda la institución.
 
----
+## Ventana de análisis (requisito institucional)
 
-## 2. Tasa de Deserción por Cohorte ($TDC_{c,s}$)
+- Cada indicador se reporta para los **últimos 10 años**: los últimos **20 periodos** cargados (TDA y TAI por periodo; TDC y TGA por cohorte).
+- Los indicadores por semestre de trayectoria (TDC, TDPA, TGA) muestran como máximo **20 semestres** (S1 a S20).
+- TDPA y TGA agregan solo las cohortes que están dentro de la ventana.
+- Los cálculos usan toda la información cargada (por ejemplo, para saber si un estudiante del primer periodo de la ventana estaba matriculado dos periodos antes); la ventana solo limita lo que se reporta.
 
-Mide el porcentaje acumulado de estudiantes desertores de una cohorte específica de ingreso ($c$) hasta un semestre determinado de su trayectoria ($s$), respecto al tamaño inicial de la cohorte (primíparos).
+## Estados SPADIES
 
-### Fórmula Matemática
-$$TDC_{c,s} = \frac{\sum_{s=1}^{S} \text{Desertores}_{c,s}}{\text{Primíparos}_c} \times 100$$
+- **Activo**: matriculado en el periodo o en el periodo anterior.
+- **Desertor**: no se observa matriculado durante dos o más periodos consecutivos y no registra grado.
+- **Graduado**: obtuvo el título.
+- *Retirado (motivos disciplinarios)*: no se calcula porque los archivos institucionales no traen esa información.
 
-### Definición de Variables:
-* **$c$**: Cohorte de ingreso de los estudiantes (semestre en el que ingresaron por primera vez como primíparos).
-* **$s$**: Semestre de trayectoria académica evaluado ($s = 1, 2, \dots, S$).
-* **$\sum_{s=1}^{S} \text{Desertores}_{c,s}$**: Suma acumulada de estudiantes pertenecientes a la cohorte $c$ que se han retirado/desertado entre el semestre 1 y el semestre $S$.
-* **$\text{Primíparos}_c$**: Número total de estudiantes primíparos que ingresaron inicialmente en la cohorte $c$.
+## 1. Tasa de Deserción Anual (TDA)
 
----
+$$TDA_t = \frac{\text{Desertores en } t}{\text{Matriculados en } t-2} \times 100$$
 
-## 3. Tasa de Deserción Promedio Acumulada ($TDPA_s$)
+- Denominador: **todos** los matriculados en *t − 2* (definición SPADIES 3.0).
+- Desertores en *t*: matriculados en *t − 2* **sin matrícula en t − 1 ni en t** y sin grado hasta *t*.
 
-Refleja la tendencia estructural e institucional de largo plazo de la deserción. Agrupa y promedia el comportamiento acumulado de deserción a lo largo de múltiples cohortes de ingreso ($c=1 \dots C$) hasta un semestre de trayectoria específico ($s$).
+## 2. Tasa de Ausencia Intersemestral (TAI)
 
-### Fórmula Matemática
-$$TDPA_s = \frac{\sum_{c=1}^{C} \sum_{s=1}^{S} \text{Desertores}_{c,s}}{\sum_{c=1}^{C} \text{Primíparos}_c} \times 100$$
+$$TAI_t = \frac{\text{Ausentes en } t+1}{\text{Matriculados en } t} \times 100$$
 
-### Definición de Variables:
-* **$c$**: Índice de la cohorte de ingreso ($c = 1, 2, \dots, C$).
-* **$s$**: Semestre de trayectoria considerado.
-* **$\sum_{c=1}^{C} \sum_{s=1}^{S} \text{Desertores}_{c,s}$**: Total acumulado de desertores en el semestre $s$ sumando todas las cohortes analizadas.
-* **$\sum_{c=1}^{C} \text{Primíparos}_c$**: Suma total de estudiantes primíparos de todas las cohortes consideradas.
+- La etiqueta es el **periodo base** *t* (convención de SPADIES). El último periodo cargado queda sin dato.
+- Ausentes: matriculados en *t* que no se matriculan en *t + 1* y no se han graduado.
 
----
+## 3. Tasa de Deserción por Cohorte (TDC)
 
-## 4. Tasa de Graduación Acumulada ($TGA_s$)
+$$TDC_{c,s} = \frac{\sum_{s'=1}^{s} \text{Desertores}_{c,s'}}{\text{Primíparos}_c} \times 100$$
 
-Mide la eficacia institucional para llevar a los estudiantes a la culminación exitosa de sus estudios. Representa la proporción acumulada de graduados sobre el total de primíparos en un semestre de trayectoria $s$, sumando todas las cohortes.
+- Primíparos de la cohorte *c*: archivo de Matriculados nuevos de *c*.
+- Un primíparo es **desertor** si **no vuelve a matricularse y nunca se gradúa** con la información disponible.
+- La deserción se **asigna al semestre de su última matrícula** y se acumula. Por eso SPADIES ya muestra deserción en S1
+  (estudiantes que solo cursaron el primer semestre).
+- Se requieren dos periodos posteriores observados para confirmar la deserción: los dos últimos semestres de cada
+  cohorte quedan pendientes y las cifras recientes se actualizan al cargar nuevos periodos (igual que en SPADIES).
 
-### Fórmula Matemática
-$$TGA_s = \frac{\sum_{c=1}^{C} \sum_{s=1}^{S} \text{Graduados}_{c,s}}{\sum_{c=1}^{C} \text{Primíparos}_c} \times 100$$
+## 4. Tasa de Deserción Promedio Acumulada (TDPA)
 
-### Definición de Variables:
-* **$c$**: Índice de la cohorte de ingreso ($c = 1, 2, \dots, C$).
-* **$s$**: Semestre de trayectoria alcanzado.
-* **$\sum_{c=1}^{C} \sum_{s=1}^{S} \text{Graduados}_{c,s}$**: Total acumulado de estudiantes graduados en o antes del semestre $s$ para todas las cohortes $C$.
-* **$\sum_{c=1}^{C} \text{Primíparos}_c$**: Suma total del número de primíparos iniciales en todas las cohortes evaluadas.
+$$TDPA_s = \frac{\sum_{c} \sum_{s'=1}^{s} \text{Desertores}_{c,s'}}{\sum_{c} \text{Primíparos}_c} \times 100$$
 
----
+Suma sobre las cohortes que ya alcanzaron el semestre *s*.
 
-## 5. Tasa de Ausencia Intersemestral ($TAI_t$)
+## 5. Tasa de Graduación Acumulada (TGA)
 
-Evalúa la movilidad de corto plazo y el riesgo inminente de deserción. Mide la proporción de estudiantes que estuvieron matriculados en el periodo inmediatamente anterior ($t-1$) pero que no registraron matrícula en el periodo actual ($t$).
+$$TGA_s = \frac{\sum_{c} \text{Graduados}_{c,\le s}}{\sum_{c} \text{Primíparos}_c} \times 100$$
 
-### Fórmula Matemática
-$$TAI_t = \frac{\text{Ausentes}_t}{\text{Matriculados}_{t-1}} \times 100$$
+Graduados de cada cohorte hasta el semestre *s*, sumando las cohortes que alcanzan *s*.
 
-### Definición de Variables:
-* **$t$**: Periodo académico actual evaluado.
-* **$\text{Ausentes}_t$**: Número de estudiantes que se matricularon en el periodo $t-1$ pero no renovaron matrícula en el periodo $t$ (y que no han sido reportados como graduados).
-* **$\text{Matriculados}_{t-1}$**: Total de estudiantes matriculados en el periodo inmediatamente anterior.
+> SPADIES calcula TDPA y TGA con todas las cohortes desde 1998. La aplicación usa las cohortes cargadas; para
+> igualar esas dos cifras exactamente se debe cargar la misma historia.
 
----
+## Validación (pregrado, 2018-1 a 2024-2)
 
-## Resumen Comparativo de los 5 Indicadores
+| Indicador | Vista IES | Vista Programa |
+|---|---|---|
+| TDA | 0,34 pp | 0,33 pp |
+| TAI | 0,42 pp | 0,41 pp |
+| TDC | 0,95 pp | 0,89 pp |
 
-
----
-
-## Alcance de Filtros y Origen de Datos
-
-De acuerdo con la información extraída de los archivos Excel de **Matriculados** y **Graduados** subidos secuencialmente por periodo, el sistema permite realizar la filtración de cualquiera de los 5 indicadores bajo dos enfoques principales:
-
-1. **🏛️ Toda la Universidad (Visión Global UCO):**
-   * Consolida la totalidad de estudiantes matriculados, primíparos, desertores y graduados de la universidad sin distinción de programa.
-   * Permite evaluar la tasa de deserción, retención y graduación a nivel institucional global.
-
-2. **🎓 Por Programa Académico Específico:**
-   * Filtra y calcula el indicador exclusivamente para la población estudiantil asociada al programa seleccionado (ej: *Ingeniería de Sistemas*, *Ingeniería Industrial*, *Administración de Empresas*, etc.).
-   * Posibilita la comparación inter-programas y el diagnóstico focalizado para la toma de decisiones docentes y coordinaciones académicas.
+Fuera de alcance por decisión del proyecto: tasa de supervivencia y tasa de deserción periodo 2.8.

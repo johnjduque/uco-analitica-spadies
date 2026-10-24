@@ -1,50 +1,51 @@
 """
-SERVICIO DE AUDITORÍA Y TRAZABILIDAD (AUDIT TRAIL)
-Universidad Católica de Oriente - Sistema Analítico de Deserción
+SERVICIO DE AUDITORÍA (AUDIT TRAIL)
 
-Permite registrar todas las operaciones críticas de negocio (crear, editar, eliminar,
-cargas de archivos, cambios de contraseña y logins) garantizando trazabilidad completa.
+Registra las operaciones críticas: inicios de sesión, gestión de usuarios,
+cargas y eliminaciones de datos, cambios de parámetros y de catálogo.
 """
 
 import json
 import logging
 from datetime import datetime
-from typing import Optional, Dict, Any, List
+from typing import Any, Dict, Optional
+
+from sqlalchemy import desc, func, or_, select
 from sqlalchemy.orm import Session
-from sqlalchemy import desc
 
 from app.models import AuditLog
 
 logger = logging.getLogger("uco_analytics.audit")
 
+
+def iso_utc(dt: Optional[datetime]) -> Optional[str]:
+    """Fecha UTC en ISO-8601 con sufijo Z (el navegador la muestra en hora local)."""
+    return dt.replace(microsecond=0).isoformat() + "Z" if dt else None
+
+
 def log_audit_event(
     db: Session,
     action: str,
     entity: str,
-    entity_id: Optional[str] = None,
-    user_id: Optional[int] = None,
+    entity_id: Optional[Any] = None,
+    user=None,
     username: Optional[str] = None,
     user_name: Optional[str] = None,
     user_role: Optional[str] = None,
+    user_id: Optional[int] = None,
     ip_address: Optional[str] = None,
     user_agent: Optional[str] = None,
-    details: Optional[Any] = None
-) -> AuditLog:
-    """
-    Registra un evento de auditoría de forma atómica en la tabla audit_logs.
-    """
-    details_str = None
-    if details is not None:
-        if isinstance(details, (dict, list)):
-            try:
-                details_str = json.dumps(details, ensure_ascii=False)
-            except Exception:
-                details_str = str(details)
-        else:
-            details_str = str(details)
-
+    details: Optional[Any] = None,
+) -> Optional[AuditLog]:
+    if user is not None:
+        user_id = user_id or user.id
+        username = username or user.username
+        user_name = user_name or (user.nombre or user.username)
+        user_role = user_role or user.role
+    if isinstance(details, (dict, list)):
+        details = json.dumps(details, ensure_ascii=False, default=str)
     try:
-        log_entry = AuditLog(
+        entry = AuditLog(
             timestamp=datetime.utcnow(),
             user_id=user_id,
             username=username,
@@ -53,71 +54,51 @@ def log_audit_event(
             action=action.upper(),
             entity=entity.upper(),
             entity_id=str(entity_id) if entity_id is not None else None,
-            ip_address=ip_address,
-            user_agent=user_agent[:250] if user_agent else None,
-            details=details_str
+            ip_address=(ip_address or "")[:50] or None,
+            user_agent=(user_agent or "")[:250] or None,
+            details=details,
         )
-        db.add(log_entry)
+        db.add(entry)
         db.commit()
-        db.refresh(log_entry)
-        return log_entry
-    except Exception as e:
+        return entry
+    except Exception as exc:
         db.rollback()
-        logger.error(f"Error al registrar auditoría [{action} on {entity}]: {str(e)}")
+        logger.error("Error registrando auditoría [%s %s]: %s", action, entity, exc)
         return None
 
-def get_audit_logs(
-    db: Session,
-    page: int = 1,
-    limit: int = 50,
-    search: Optional[str] = None,
-    action_filter: Optional[str] = None,
-    entity_filter: Optional[str] = None
-) -> Dict[str, Any]:
-    """
-    Consulta paginada del historial de auditoría con filtros.
-    """
-    query = db.query(AuditLog)
 
+def get_audit_logs(db: Session, page: int = 1, limit: int = 50, search: Optional[str] = None,
+                   action_filter: Optional[str] = None, entity_filter: Optional[str] = None) -> Dict[str, Any]:
+    stmt = select(AuditLog)
     if action_filter and action_filter.upper() != "TODOS":
-        query = query.filter(AuditLog.action == action_filter.upper())
-
+        stmt = stmt.where(AuditLog.action == action_filter.upper())
     if entity_filter and entity_filter.upper() != "TODOS":
-        query = query.filter(AuditLog.entity == entity_filter.upper())
-
+        stmt = stmt.where(AuditLog.entity == entity_filter.upper())
     if search and search.strip():
-        term = f"%{search.strip().lower()}%"
-        query = query.filter(
-            (AuditLog.username.ilike(term)) |
-            (AuditLog.user_name.ilike(term)) |
-            (AuditLog.details.ilike(term)) |
-            (AuditLog.entity_id.ilike(term))
-        )
-
-    total = query.count()
-    offset = (page - 1) * limit
-    logs = query.order_by(desc(AuditLog.timestamp)).offset(offset).limit(limit).all()
-
+        term = f"%{search.strip()}%"
+        stmt = stmt.where(or_(AuditLog.username.ilike(term), AuditLog.user_name.ilike(term),
+                              AuditLog.details.ilike(term), AuditLog.entity_id.ilike(term)))
+    total = db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
+    logs = db.scalars(stmt.order_by(desc(AuditLog.timestamp), desc(AuditLog.id))
+                      .offset((page - 1) * limit).limit(limit)).all()
     return {
         "total": total,
         "page": page,
         "limit": limit,
-        "total_pages": (total + limit - 1) // limit if total > 0 else 1,
+        "total_pages": max(1, (total + limit - 1) // limit),
         "items": [
             {
                 "id": l.id,
-                "timestamp": l.timestamp.strftime("%Y-%m-%d %H:%M:%S") if l.timestamp else "",
-                "user_id": l.user_id,
+                "timestamp": iso_utc(l.timestamp),
                 "username": l.username or "Sistema",
                 "user_name": l.user_name or l.username or "Sistema",
                 "user_role": l.user_role or "N/A",
                 "action": l.action,
                 "entity": l.entity,
                 "entity_id": l.entity_id,
-                "ip_address": l.ip_address or "127.0.0.1",
-                "user_agent": l.user_agent or "",
-                "details": l.details
+                "ip_address": l.ip_address or "",
+                "details": l.details,
             }
             for l in logs
-        ]
+        ],
     }

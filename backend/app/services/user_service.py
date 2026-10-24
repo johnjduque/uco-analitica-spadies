@@ -1,193 +1,119 @@
 """
-SERVICIO DE GESTIÓN DE USUARIOS
-Universidad Católica de Oriente - Sistema Analítico de Deserción
+SERVICIO DE GESTIÓN DE USUARIOS (RBAC)
 
-Maneja creación, consulta, modificación y eliminación de usuarios (RBAC)
-con contraseñas hasheadas en Bcrypt y auditoría automática de cada acción.
+- Los usuarios nuevos reciben una contraseña temporal aleatoria que el
+  administrador comunica; el sistema obliga a cambiarla en el primer ingreso.
+- Siempre debe existir al menos un administrador activo.
 """
 
-import logging
-from typing import List, Dict, Any, Optional
+import re
+from typing import Any, Dict, List, Optional
+
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from app.models import User
-from app.core.security import get_password_hash
 from app.core.messages import AppException
-from app.services.audit_service import log_audit_event
+from app.core.security import ROLES, generate_temporary_password, get_password_hash
+from app.models import User
+from app.services.audit_service import iso_utc, log_audit_event
 
-logger = logging.getLogger("uco_analytics.users")
+_USERNAME_RE = re.compile(r"^[A-Za-z0-9._-]{4,30}$")
+
+
+def _serialize(u: User) -> Dict[str, Any]:
+    return {
+        "id": u.id, "username": u.username, "nombre": u.nombre or u.username, "role": u.role,
+        "activo": u.is_active is not False, "debe_cambiar_clave": bool(u.must_change_password),
+        "ultimo_ingreso": iso_utc(u.last_login_at), "created_at": iso_utc(u.created_at),
+    }
+
+
+def _validate(username: str, nombre: str, role: str):
+    username = (username or "").strip()
+    nombre = " ".join((nombre or "").split())
+    role = (role or "").strip().lower()
+    if not _USERNAME_RE.match(username):
+        raise AppException("USER_003")
+    if len(nombre) < 3:
+        raise AppException("VAL_001", custom_user_message="El nombre completo es obligatorio.")
+    if role not in ROLES:
+        raise AppException("USER_004")
+    return username, nombre, role
+
+
+def _active_admins(db: Session) -> int:
+    active = or_(User.is_active.is_(None), User.is_active.is_(True))
+    return db.scalar(select(func.count(User.id)).where(User.role == "administrador", active)) or 0
+
 
 def get_all_users(db: Session) -> List[Dict[str, Any]]:
-    """Consulta la lista de todos los usuarios registrados."""
-    users = db.query(User).order_by(User.id).all()
-    return [
-        {
-            "id": u.id,
-            "username": u.username,
-            "nombre": u.nombre or u.username,
-            "role": u.role,
-            "created_at": u.created_at.strftime("%Y-%m-%d %H:%M:%S") if u.created_at else ""
-        }
-        for u in users
-    ]
+    return [_serialize(u) for u in db.scalars(select(User).order_by(User.id)).all()]
 
-def create_user(
-    db: Session,
-    cedula: str,
-    nombre: str = "",
-    role: str = "consultor",
-    actor_username: Optional[str] = "Administrador",
-    actor_role: Optional[str] = "administrador",
-    ip_address: Optional[str] = None,
-    user_agent: Optional[str] = None
-) -> Dict[str, Any]:
-    """
-    Crea un nuevo usuario en el sistema.
-    La contraseña inicial por defecto es la misma cédula (hasheada en Bcrypt).
-    """
-    cedula_limpia = str(cedula).strip()
-    nombre_limpio = str(nombre).strip() if nombre else ""
 
-    if not cedula_limpia or not cedula_limpia.isalnum():
-        raise AppException("USER_003")
-
-    if len(cedula_limpia) < 4:
-        raise AppException("USER_003", custom_user_message="El nombre de usuario o cédula debe tener al menos 4 caracteres.")
-
-    role_clean = role.lower() if role else "consultor"
-    if role_clean not in ["administrador", "admin", "consultor"]:
-        raise AppException("USER_004")
-
-    # Verificar unicidad
-    existing = db.query(User).filter(User.username == cedula_limpia).first()
-    if existing:
-        raise AppException("USER_001", custom_user_message=f"Ya existe un usuario registrado con la cédula {cedula_limpia}.")
-
-    # Hash inicial Bcrypt
-    hashed_password = get_password_hash(cedula_limpia)
-    new_user = User(
-        username=cedula_limpia,
-        nombre=nombre_limpio,
-        password=hashed_password,
-        role=role_clean
-    )
-    db.add(new_user)
+def create_user(db: Session, username: str, nombre: str, role: str, actor: User, ip=None, ua=None) -> Dict[str, Any]:
+    username, nombre, role = _validate(username, nombre, role)
+    if db.scalar(select(User).where(User.username == username)):
+        raise AppException("USER_001")
+    temp = generate_temporary_password()
+    user = User(username=username, nombre=nombre, role=role, password=get_password_hash(temp), must_change_password=True)
+    db.add(user)
     db.commit()
-    db.refresh(new_user)
+    log_audit_event(db, "CREAR", "USUARIO", user.id, user=actor, ip_address=ip, user_agent=ua,
+                    details=f"Creación del usuario {nombre} ({username}, rol {role}) con contraseña temporal.")
+    return {"message": "Usuario creado. Entregue la contraseña temporal al usuario; deberá cambiarla al ingresar.",
+            "user": _serialize(user), "temporary_password": temp}
 
-    # Registrar en auditoría en lenguaje institucional
-    log_audit_event(
-        db=db,
-        action="CREAR",
-        entity="USUARIO",
-        entity_id=str(new_user.id),
-        username=actor_username,
-        user_name=actor_username,
-        user_role=actor_role,
-        ip_address=ip_address,
-        user_agent=user_agent,
-        details=f"Creación del usuario {new_user.nombre or new_user.username} (Cédula: {new_user.username}, Rol: {new_user.role.capitalize()}). Clave inicial configurada por defecto."
-    )
 
-    return {
-        "message": f"Usuario {nombre_limpio or cedula_limpia} (Cédula: {cedula_limpia}) creado exitosamente. La contraseña inicial es su número de cédula.",
-        "user": {
-            "id": new_user.id,
-            "username": new_user.username,
-            "nombre": new_user.nombre,
-            "role": new_user.role
-        }
-    }
-
-def update_user(
-    db: Session,
-    user_id: int,
-    username: str,
-    nombre: str = "",
-    role: str = "consultor",
-    password: Optional[str] = None,
-    actor_username: Optional[str] = "Administrador",
-    actor_role: Optional[str] = "administrador",
-    ip_address: Optional[str] = None,
-    user_agent: Optional[str] = None
-) -> Dict[str, Any]:
-    """Actualiza datos de un usuario existente y registra los cambios en auditoría."""
-    user = db.query(User).filter(User.id == user_id).first()
+def update_user(db: Session, user_id: int, username: str, nombre: str, role: str, activo: Optional[bool],
+                actor: User, ip=None, ua=None) -> Dict[str, Any]:
+    user = db.get(User, user_id)
     if not user:
         raise AppException("USER_002")
+    username, nombre, role = _validate(username, nombre, role)
+    if db.scalar(select(User).where(User.username == username, User.id != user_id)):
+        raise AppException("USER_001")
+    will_be_admin = role == "administrador" and (activo is not False)
+    if user.role == "administrador" and user.is_active is not False and not will_be_admin and _active_admins(db) <= 1:
+        raise AppException("USER_005")
+    if user.id == actor.id and (not will_be_admin):
+        raise AppException("USER_005", custom_user_message="No puede quitarse a sí mismo el rol de administrador ni desactivarse.")
+    before = _serialize(user)
+    user.username, user.nombre, user.role = username, nombre, role
+    if activo is not None:
+        user.is_active = bool(activo)
+    db.commit()
+    log_audit_event(db, "EDITAR", "USUARIO", user.id, user=actor, ip_address=ip, user_agent=ua,
+                    details={"antes": {k: before[k] for k in ("username", "nombre", "role", "activo")},
+                             "despues": {k: _serialize(user)[k] for k in ("username", "nombre", "role", "activo")}})
+    return {"message": "Usuario actualizado exitosamente.", "user": _serialize(user)}
 
-    new_username = str(username).strip()
-    if not new_username or not new_username.isalnum():
-        raise AppException("USER_003")
 
-    # Verificar si otra cuenta ya tiene esa cédula
-    existing = db.query(User).filter(User.username == new_username, User.id != user_id).first()
-    if existing:
-        raise AppException("USER_001", custom_user_message="Ya existe otro usuario registrado con esa cédula.")
-
-    old_state = {
-        "username": user.username,
-        "nombre": user.nombre,
-        "role": user.role
-    }
-
-    user.username = new_username
-    user.nombre = str(nombre).strip() if nombre else ""
-    user.role = role.lower() if role else "consultor"
-
-    pass_changed = False
-    if password and password.strip():
-        user.password = get_password_hash(password.strip())
-        pass_changed = True
-
-    pass_note = " Se actualizó la contraseña." if pass_changed else ""
-    # Registrar en auditoría en lenguaje institucional
-    log_audit_event(
-        db=db,
-        action="EDITAR",
-        entity="USUARIO",
-        entity_id=str(user.id),
-        username=actor_username,
-        user_name=actor_username,
-        user_role=actor_role,
-        ip_address=ip_address,
-        user_agent=user_agent,
-        details=f"Modificación del perfil de usuario {user.nombre or user.username} (Cédula: {user.username}, Rol: {user.role.capitalize()}).{pass_note}"
-    )
-
-    return {"message": "Usuario actualizado exitosamente", "user": {"id": user.id, "username": user.username, "nombre": user.nombre, "role": user.role}}
-
-def delete_user(
-    db: Session,
-    user_id: int,
-    actor_username: Optional[str] = "Administrador",
-    actor_role: Optional[str] = "administrador",
-    ip_address: Optional[str] = None,
-    user_agent: Optional[str] = None
-) -> Dict[str, Any]:
-    """Elimina un usuario y registra el evento en auditoría."""
-    user = db.query(User).filter(User.id == user_id).first()
+def reset_password(db: Session, user_id: int, actor: User, ip=None, ua=None) -> Dict[str, Any]:
+    user = db.get(User, user_id)
     if not user:
         raise AppException("USER_002")
+    temp = generate_temporary_password()
+    from datetime import datetime
+    user.password = get_password_hash(temp)
+    user.must_change_password = True
+    user.password_changed_at = datetime.utcnow().replace(microsecond=0)   # cierra sesiones abiertas
+    db.commit()
+    log_audit_event(db, "RESTABLECER_CLAVE", "USUARIO", user.id, user=actor, ip_address=ip, user_agent=ua,
+                    details=f"Restablecimiento de contraseña del usuario {user.username} (temporal, cambio obligatorio).")
+    return {"message": "Contraseña restablecida. Entregue la contraseña temporal al usuario.", "temporary_password": temp}
 
-    u_nombre = user.nombre or user.username
-    u_cedula = user.username
-    u_rol = user.role.capitalize()
 
+def delete_user(db: Session, user_id: int, actor: User, ip=None, ua=None) -> Dict[str, Any]:
+    user = db.get(User, user_id)
+    if not user:
+        raise AppException("USER_002")
+    if user.id == actor.id:
+        raise AppException("USER_005")
+    if user.role == "administrador" and user.is_active is not False and _active_admins(db) <= 1:
+        raise AppException("USER_005")
+    info = f"{user.nombre or user.username} ({user.username}, rol {user.role})"
     db.delete(user)
     db.commit()
-
-    log_audit_event(
-        db=db,
-        action="ELIMINAR",
-        entity="USUARIO",
-        entity_id=str(user_id),
-        username=actor_username,
-        user_name=actor_username,
-        user_role=actor_role,
-        ip_address=ip_address,
-        user_agent=user_agent,
-        details=f"Eliminación de la cuenta del usuario {u_nombre} (Cédula: {u_cedula}, Rol: {u_rol})."
-    )
-
-    return {"message": "Usuario eliminado exitosamente"}
+    log_audit_event(db, "ELIMINAR", "USUARIO", user_id, user=actor, ip_address=ip, user_agent=ua,
+                    details=f"Eliminación de la cuenta del usuario {info}.")
+    return {"message": "Usuario eliminado exitosamente."}

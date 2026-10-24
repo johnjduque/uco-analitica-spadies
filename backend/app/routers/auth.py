@@ -1,59 +1,46 @@
 """
-ENRUTADOR DE AUTENTICACIÓN Y SEGURIDAD
-Endpoints: /api/login, /api/change-password, /api/status, /api/auth/me
+AUTENTICACIÓN
+POST /api/auth/login            (público, con límite de intentos)
+POST /api/auth/change-password  (usuario autenticado, incluso con clave temporal)
+GET  /api/auth/me               (usuario autenticado)
 """
 
 from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.security import require_authenticated_user
+from app.core.security import get_current_user_allow_pending
+from app.routers.deps import client_info
 from app.services import auth_service
 
-router = APIRouter(tags=["Autenticación"])
+router = APIRouter(prefix="/auth", tags=["Autenticación"])
+
 
 class LoginRequest(BaseModel):
-    username: str
-    password: str
+    username: str = Field(..., min_length=1, max_length=100)
+    password: str = Field(..., min_length=1, max_length=200)
+
 
 class ChangePasswordRequest(BaseModel):
-    username: str
-    old_password: str
-    new_password: str
+    old_password: str = Field(..., min_length=1, max_length=200)
+    new_password: str = Field(..., min_length=1, max_length=200)
 
-@router.get("/status")
-def get_status():
-    return {"status": "success", "message": "API UCO Analytics operativa."}
 
 @router.post("/login")
-def login(request: LoginRequest, req: Request, db: Session = Depends(get_db)):
-    ip = req.client.host if req.client else "127.0.0.1"
-    user_agent = req.headers.get("user-agent", "")
-    return auth_service.authenticate_user(
-        db=db,
-        username=request.username,
-        password=request.password,
-        ip_address=ip,
-        user_agent=user_agent
-    )
+def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)):
+    ip, ua = client_info(request)
+    return auth_service.authenticate_user(db, body.username, body.password, ip, ua)
+
 
 @router.post("/change-password")
-def change_password(request: ChangePasswordRequest, req: Request, db: Session = Depends(get_db)):
-    ip = req.client.host if req.client else "127.0.0.1"
-    user_agent = req.headers.get("user-agent", "")
-    return auth_service.change_password(
-        db=db,
-        username=request.username,
-        old_password=request.old_password,
-        new_password=request.new_password,
-        ip_address=ip,
-        user_agent=user_agent
-    )
+def change_password(body: ChangePasswordRequest, request: Request, db: Session = Depends(get_db),
+                    user=Depends(get_current_user_allow_pending)):
+    ip, ua = client_info(request)
+    return auth_service.change_password(db, user, body.old_password, body.new_password, ip, ua)
 
-@router.get("/auth/me")
-def get_current_user_profile(user_payload: dict = Depends(require_authenticated_user)):
-    return {
-        "success": True,
-        "user": user_payload
-    }
+
+@router.get("/me")
+def me(user=Depends(get_current_user_allow_pending)):
+    return {"id": user.id, "username": user.username, "nombre": user.nombre or user.username,
+            "role": user.role, "must_change_password": bool(user.must_change_password)}

@@ -1,98 +1,74 @@
 """
-ENRUTADOR DE CARGUE DE INFORMACIÓN Y PROGRAMAS
-Endpoints: /api/admin/loads, /api/admin/next-expected-period,
-/api/admin/upload-period, /api/admin/confirm-new-program, /api/admin/programs
+CARGA DE ARCHIVOS (solo administrador)
+GET /api/loads · GET /api/loads/status · POST /api/loads · DELETE /api/loads/{id}
 """
 
+import json
 from typing import Optional
-from fastapi import APIRouter, Depends, UploadFile, File, Form, Request
-from pydantic import BaseModel
+
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.security import get_current_user_payload
-from app.services import load_service
-from app.program_codes import add_new_program, get_all_official_programs
+from app.core.messages import AppException
+from app.core.security import require_admin
+from app.routers.deps import client_info
+from app.services import ingestion_service
+from app.services.parameter_service import get_parameter_value
 
-router = APIRouter(prefix="/admin", tags=["Cargas e Ingesta"])
+router = APIRouter(prefix="/loads", tags=["Cargas de datos"], dependencies=[Depends(require_admin)])
+_ALLOWED_EXT = (".xls", ".xlsx", ".xlsm", ".csv")
 
-class NewProgramRequest(BaseModel):
-    program_name: str
-    full_name: Optional[str] = None
 
-@router.get("/loads")
-def get_loads(db: Session = Depends(get_db)):
-    return load_service.get_all_loads(db)
+@router.get("")
+def list_loads(db: Session = Depends(get_db)):
+    return ingestion_service.list_loads(db)
 
-@router.get("/next-expected-period")
-def get_next_period_info(tipo: Optional[str] = None, db: Session = Depends(get_db)):
-    next_load = load_service.get_next_expected_load(db)
-    return {
-        "tipo": next_load["tipo"],
-        "next_period": next_load["periodo"],
-        "expected_tipo": next_load["tipo"],
-        "expected_periodo": next_load["periodo"]
-    }
 
-@router.post("/upload-period")
-async def upload_period(
-    req: Request,
+@router.get("/status")
+def load_status(db: Session = Depends(get_db)):
+    return ingestion_service.load_status(db)
+
+
+@router.post("")
+async def upload(
+    request: Request,
     file: UploadFile = File(...),
     tipo: str = Form(...),
     periodo: str = Form(...),
-    confirm_new_program: bool = Form(False),
+    reemplazar: bool = Form(False),
+    decisiones_programas: Optional[str] = Form(None),
     db: Session = Depends(get_db),
-    user_payload: Optional[dict] = Depends(get_current_user_payload)
+    actor=Depends(require_admin),
 ):
-    contents = await file.read()
-    ip = req.client.host if req.client else "127.0.0.1"
-    user_agent = req.headers.get("user-agent", "")
-    actor_username = user_payload.get("username", "Administrador") if user_payload else "Administrador"
-    actor_role = user_payload.get("role", "administrador") if user_payload else "administrador"
+    filename = (file.filename or "archivo").replace("\\", "/").split("/")[-1]
+    if not filename.lower().endswith(_ALLOWED_EXT):
+        raise AppException("DATA_003")
+    max_mb = get_parameter_value(db, "MAX_FILE_UPLOAD_MB", 30)
+    limit = max_mb * 1024 * 1024
+    chunks, size = [], 0
+    while True:
+        chunk = await file.read(1024 * 1024)
+        if not chunk:
+            break
+        size += len(chunk)
+        if size > limit:
+            raise AppException("DATA_009", custom_user_message=f"El archivo supera el máximo permitido de {max_mb} MB.")
+        chunks.append(chunk)
+    decisions = None
+    if decisiones_programas:
+        try:
+            decisions = json.loads(decisiones_programas)
+            if not isinstance(decisions, list):
+                raise ValueError
+        except ValueError:
+            raise AppException("VAL_001", custom_user_message="Formato de decisiones de programas no válido.")
+    ip, ua = client_info(request)
+    return ingestion_service.process_upload(db, b"".join(chunks), filename, tipo, periodo, reemplazar,
+                                            decisions, actor, ip, ua)
 
-    return load_service.process_file_upload(
-        db=db,
-        file_bytes=contents,
-        filename=file.filename,
-        tipo=tipo,
-        periodo=periodo,
-        confirm_new_program=confirm_new_program,
-        actor_username=actor_username,
-        actor_role=actor_role,
-        ip_address=ip,
-        user_agent=user_agent
-    )
 
-@router.delete("/loads/{load_id}")
-def delete_load(
-    load_id: int, 
-    req: Request, 
-    db: Session = Depends(get_db),
-    user_payload: Optional[dict] = Depends(get_current_user_payload)
-):
-    ip = req.client.host if req.client else "127.0.0.1"
-    user_agent = req.headers.get("user-agent", "")
-    actor_username = user_payload.get("username", "Administrador") if user_payload else "Administrador"
-    actor_role = user_payload.get("role", "administrador") if user_payload else "administrador"
-
-    return load_service.delete_load_record(
-        db=db,
-        load_id=load_id,
-        actor_username=actor_username,
-        actor_role=actor_role,
-        ip_address=ip,
-        user_agent=user_agent
-    )
-
-@router.post("/confirm-new-program")
-def confirm_new_program_endpoint(req: NewProgramRequest):
-    registered_name = add_new_program(req.program_name, req.full_name)
-    return {
-        "status": "success",
-        "message": f"El programa '{registered_name}' ha sido agregado exitosamente al directorio oficial de la UCO.",
-        "registered_name": registered_name
-    }
-
-@router.get("/programs")
-def get_programs():
-    return get_all_official_programs()
+@router.delete("/{load_id}")
+def delete_load(load_id: int, request: Request, db: Session = Depends(get_db), actor=Depends(require_admin)):
+    ip, ua = client_info(request)
+    return ingestion_service.delete_load(db, load_id, actor, ip, ua)

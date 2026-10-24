@@ -1,21 +1,24 @@
-; Inno Setup Script for UCO MAP Analytics Desktop System
-; Script generated for Windows Desktop Installation
+; Instalador de Windows para UCO Analytics (Inno Setup 6)
+; Requiere haber generado antes dist\UcoAnalytics.exe con PyInstaller (ver main.spec).
+; Se instala por usuario en %LOCALAPPDATA% para que la base de datos y la llave
+; secreta queden en una carpeta con permisos de escritura y privada del usuario.
 
 [Setup]
 AppId={{D37B40A1-9E28-44A6-A221-972109BC8205}
-AppName=UCO MAP Analytics
-AppVersion=1.0.0
+AppName=UCO Analytics
+AppVersion=3.0.0
 AppPublisher=Universidad Católica de Oriente
 AppPublisherURL=https://www.uco.edu.co
-AppSupportURL=https://www.uco.edu.co
-AppUpdatesURL=https://www.uco.edu.co
-DefaultDirName={autopf}\UCO_MAP_Analytics
-DefaultGroupName=UCO MAP Analytics
+DefaultDirName={localappdata}\UCO_Analytics
+DefaultGroupName=UCO Analytics
 DisableProgramGroupPage=yes
-OutputBaseFilename=Setup_UcoMap_Analytics
-Compression=lzma
+PrivilegesRequired=lowest
+OutputDir=Output
+OutputBaseFilename=Setup_UCO_Analytics_3.0.0
+Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
+UninstallDisplayIcon={app}\UcoAnalytics.exe
 
 [Languages]
 Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
@@ -24,12 +27,15 @@ Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
-Source: "..\dist\UcoMapAnalytics.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\Data\*"; DestDir: "{app}\Data"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "dist\UcoAnalytics.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\backend\.env.example"; DestDir: "{app}"; DestName: ".env.example"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\UCO MAP Analytics"; Filename: "{app}\UcoMapAnalytics.exe"
-Name: "{autodesktop}\UCO MAP Analytics"; Filename: "{app}\UcoMapAnalytics.exe"; Tasks: desktopicon
+Name: "{group}\UCO Analytics"; Filename: "{app}\UcoAnalytics.exe"
+Name: "{autodesktop}\UCO Analytics"; Filename: "{app}\UcoAnalytics.exe"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\UcoMapAnalytics.exe"; Description: "{cm:LaunchProgram,UCO MAP Analytics}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\UcoAnalytics.exe"; Description: "{cm:LaunchProgram,UCO Analytics}"; Flags: nowait postinstall skipifsilent
+
+; Nota: la base de datos (datos_uco.db) y la llave (.secret_key) se conservan al
+; desinstalar para no perder información. Elimínelas manualmente si desea un borrado completo.

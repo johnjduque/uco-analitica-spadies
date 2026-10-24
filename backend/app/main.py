@@ -1,224 +1,178 @@
 """
-APLICACIÓN PRINCIPAL FASTAPI (ARQUITECTURA PROFESIONAL UCO)
-Universidad Católica de Oriente - Sistema Analítico de Deserción
+APLICACIÓN PRINCIPAL FASTAPI - UCO Analytics
 
-Integra Clean Architecture, soporte dual de bases de datos (SQL Server & SQLite),
-autenticación segura con Bcrypt y JWT, auditoría de cambios (Audit Trail),
-catálogo de parámetros y manejo centralizado de excepciones según OWASP.
+Capas:
+  routers/  -> HTTP (validación de entrada y control de acceso por rol)
+  services/ -> casos de uso (cargas, indicadores, usuarios, reportes, auditoría)
+  domain/   -> reglas puras (periodos, motor de indicadores SPADIES)
+  core/     -> configuración, base de datos, seguridad, mensajes
 """
 
-import os
-import uuid
 import logging
+import uuid
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import JSONResponse, FileResponse
-from fastapi.staticfiles import StaticFiles
+from pathlib import Path
+
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import text
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.core.config import settings
-from app.core.database import engine, Base, SessionLocal
+from app.core.database import SessionLocal, engine
 from app.core.messages import AppException, format_error_response
-from app.models import User
-from app.core.security import get_password_hash
-from app.services import parameter_service
+from app.core.migrations import sync_schema
+from app.routers import audit, auth, indicators, loads, parameters, programs, students, users
+from app.services import auth_service, parameter_service, program_service
 
-# Routers
-from app.routers import auth, users, loads, analytics, audit, parameters
-
-# Configuración de logs
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("uco_analytics.main")
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Inicialización segura del sistema al arrancar el servidor."""
-    logger.info("=" * 65)
-    logger.info(f"Iniciando {settings.PROJECT_NAME} v{settings.PROJECT_VERSION}")
-    logger.info(f"Motor de Base de Datos seleccionado: {settings.DB_ENGINE.upper()}")
-    logger.info("=" * 65)
 
-    # 1. Crear tablas en Base de Datos (SQL Server o SQLite)
-    try:
-        Base.metadata.create_all(bind=engine)
-        logger.info("Esquemas de Base de Datos sincronizados exitosamente.")
-    except Exception as e:
-        logger.error(f"Error sincronizando esquemas de BD: {e}")
-
-    # 2. Inicializar parámetros del sistema y usuario administrador inicial
+def initialize_database() -> None:
+    sync_schema(engine)
     db = SessionLocal()
     try:
-        # Asegurar columnas si la tabla de usuarios ya existía
-        try:
-            with engine.connect() as conn:
-                if settings.DB_ENGINE == "sqlite":
-                    cols = [row[1] for row in conn.execute(text("PRAGMA table_info(users)"))]
-                    if "nombre" not in cols:
-                        conn.execute(text("ALTER TABLE users ADD COLUMN nombre TEXT DEFAULT ''"))
-                    if "created_at" not in cols:
-                        conn.execute(text("ALTER TABLE users ADD COLUMN created_at TIMESTAMP"))
-                    if "updated_at" not in cols:
-                        conn.execute(text("ALTER TABLE users ADD COLUMN updated_at TIMESTAMP"))
-                    # data_loads
-                    dl_cols = [row[1] for row in conn.execute(text("PRAGMA table_info(data_loads)"))]
-                    if "created_at" not in dl_cols:
-                        conn.execute(text("ALTER TABLE data_loads ADD COLUMN created_at TIMESTAMP"))
-                    conn.commit()
-        except Exception as e:
-            logger.warning(f"Verificación de esquemas users/data_loads: {e}")
-
-        # Catálogo de Parámetros
         parameter_service.seed_default_parameters(db)
-
-        # Asegurar usuarios genéricos de entorno de pruebas
-        admin_user = db.query(User).filter(User.username == "admin").first()
-        if not admin_user:
-            admin_user = User(
-                username="admin",
-                nombre="Administrador Sistema",
-                password=get_password_hash("admin123"),
-                role="administrador"
-            )
-            db.add(admin_user)
-            logger.info("Usuario genérico 'admin' creado por defecto.")
-
-        consultor_user = db.query(User).filter(User.username == "consultor").first()
-        if not consultor_user:
-            consultor_user = User(
-                username="consultor",
-                nombre="Consultor Académico",
-                password=get_password_hash("consultor123"),
-                role="consultor"
-            )
-            db.add(consultor_user)
-            logger.info("Usuario genérico 'consultor' creado por defecto.")
-        db.commit()
-    except Exception as e:
-        logger.error(f"Error en seed inicial: {e}")
+        program_service.seed_catalog(db)
+        temp_password = auth_service.ensure_initial_admin(db)
+        if temp_password:
+            banner = "=" * 70
+            logger.warning(
+                "\n%s\n  ADMINISTRADOR INICIAL CREADO\n  Usuario: %s\n  Contraseña temporal: %s\n"
+                "  Deberá cambiarla en el primer inicio de sesión. Este mensaje no se repetirá.\n%s",
+                banner, settings.INITIAL_ADMIN_USERNAME or "admin", temp_password, banner)
     finally:
         db.close()
 
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    logger.info("Iniciando %s v%s | entorno=%s | BD=%s", settings.PROJECT_NAME, settings.PROJECT_VERSION,
+                settings.APP_ENV, settings.DB_ENGINE)
+    initialize_database()
     yield
-    logger.info("Servidor UCO Analytics detenido de forma segura.")
+    logger.info("Servidor detenido.")
+
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.PROJECT_VERSION,
-    description="API RESTful de Alta Disponibilidad para Analítica de Deserción y Permanencia UCO",
-    lifespan=lifespan
-)
-
-# Middleware CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    description="API de analítica de deserción y permanencia estudiantil (metodología SPADIES 3.0).",
+    lifespan=lifespan,
+    docs_url="/docs" if settings.ENABLE_DOCS else None,
+    redoc_url=None,
+    openapi_url="/openapi.json" if settings.ENABLE_DOCS else None,
 )
 
 # -------------------------------------------------------------------
-# MANEJADOR CENTRALIZADO DE EXCEPCIONES (OWASP COMPLIANT)
+# CORS: por defecto solo mismo origen. En desarrollo se permite Vite (5173).
 # -------------------------------------------------------------------
+cors_origins = list(settings.CORS_ORIGINS)
+if not settings.IS_PRODUCTION:
+    cors_origins += ["http://localhost:5173", "http://127.0.0.1:5173"]
+if cors_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=cors_origins,
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "PUT", "DELETE"],
+        allow_headers=["Authorization", "Content-Type"],
+        expose_headers=["Content-Disposition"],
+    )
+
+
+# -------------------------------------------------------------------
+# CABECERAS DE SEGURIDAD
+# -------------------------------------------------------------------
+_CSP = ("default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; "
+        "connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    if not request.url.path.startswith(("/docs", "/openapi.json")):
+        response.headers.setdefault("Content-Security-Policy", _CSP)
+    if request.url.path.startswith(settings.API_PREFIX):
+        response.headers.setdefault("Cache-Control", "no-store")
+    return response
+
+
+# -------------------------------------------------------------------
+# MANEJO CENTRALIZADO DE ERRORES (sin exponer detalles internos)
+# -------------------------------------------------------------------
+def _trace() -> str:
+    return uuid.uuid4().hex[:8]
+
+
 @app.exception_handler(AppException)
 async def app_exception_handler(request: Request, exc: AppException):
-    trace_id = str(uuid.uuid4())[:8]
-    logger.warning(
-        f"[{exc.code}] [TraceID: {trace_id}] Endpoint: {request.method} {request.url.path} | "
-        f"Detalle Técnico: {exc.technical_message}"
-    )
-    return JSONResponse(
-        status_code=exc.status_code,
-        content=format_error_response(
-            code=exc.code,
-            custom_user_message=exc.user_message,
-            trace_id=trace_id
-        )
-    )
+    trace_id = _trace()
+    logger.warning("[%s] [%s] %s %s | %s", exc.code, trace_id, request.method, request.url.path, exc.technical_message)
+    return JSONResponse(status_code=exc.status_code,
+                        content=format_error_response(exc.code, exc.user_message, trace_id))
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    trace_id = _trace()
+    logger.info("[VAL_001] [%s] %s %s | %s", trace_id, request.method, request.url.path, exc.errors())
+    return JSONResponse(status_code=422, content=format_error_response("VAL_001", None, trace_id))
+
 
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
-    # Si detail es un string estándar de FastAPI
-    trace_id = str(uuid.uuid4())[:8]
-    return JSONResponse(
-        status_code=exc.status_code,
-        content={
-            "success": False,
-            "detail": exc.detail,
-            "error": {
-                "code": f"HTTP_{exc.status_code}",
-                "message": exc.detail,
-                "trace_id": trace_id
-            }
-        }
-    )
+    trace_id = _trace()
+    message = exc.detail if isinstance(exc.detail, str) else "Solicitud no válida."
+    return JSONResponse(status_code=exc.status_code,
+                        content={"success": False, "detail": message, "message": message,
+                                 "error": {"code": f"HTTP_{exc.status_code}", "message": message, "trace_id": trace_id}})
+
 
 @app.exception_handler(Exception)
 async def generic_exception_handler(request: Request, exc: Exception):
-    trace_id = str(uuid.uuid4())[:8]
-    logger.error(
-        f"[SYS_001] [TraceID: {trace_id}] Excepción no controlada en {request.method} {request.url.path}: {str(exc)}",
-        exc_info=True
-    )
-    return JSONResponse(
-        status_code=500,
-        content=format_error_response(
-            code="SYS_001",
-            custom_user_message="Ocurrió un inconveniente temporal en el servidor. Comuníquese con soporte técnico indicando el código de seguimiento.",
-            trace_id=trace_id
-        )
-    )
+    trace_id = _trace()
+    logger.error("[SYS_001] [%s] %s %s: %s", trace_id, request.method, request.url.path, exc, exc_info=True)
+    return JSONResponse(status_code=500, content=format_error_response(
+        "SYS_001", "Ocurrió un error interno. Comuníquese con soporte indicando el código de seguimiento.", trace_id))
+
 
 # -------------------------------------------------------------------
-# REGISTRO DE ENRUTADORES (/api/...)
+# RUTAS DE LA API
 # -------------------------------------------------------------------
-app.include_router(auth.router, prefix=settings.API_V1_STR)
-app.include_router(users.router, prefix=settings.API_V1_STR)
-app.include_router(users.bootstrap_router, prefix=settings.API_V1_STR)
-app.include_router(loads.router, prefix=settings.API_V1_STR)
-app.include_router(analytics.router, prefix=settings.API_V1_STR)
-app.include_router(audit.router, prefix=settings.API_V1_STR)
-app.include_router(parameters.router, prefix=settings.API_V1_STR)
+@app.get(f"{settings.API_PREFIX}/health", tags=["Sistema"])
+def health():
+    return {"status": "ok", "version": settings.PROJECT_VERSION}
+
+
+for r in (auth.router, users.router, loads.router, programs.router, indicators.router,
+          students.router, audit.router, parameters.router):
+    app.include_router(r, prefix=settings.API_PREFIX)
+
 
 # -------------------------------------------------------------------
-# SERVIDOR DE ARCHIVOS ESTÁTICOS FRONTEND
+# FRONTEND (SPA compilada en frontend/dist)
 # -------------------------------------------------------------------
-frontend_dist = settings.FRONTEND_DIST
-assets_dir = os.path.join(frontend_dist, "assets")
+_dist = Path(settings.FRONTEND_DIST).resolve()
+if (_dist / "assets").exists():
+    app.mount("/assets", StaticFiles(directory=_dist / "assets"), name="assets")
 
-if os.path.exists(assets_dir):
-    app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
 
-@app.get("/logo-uco.svg")
-def serve_logo():
-    p = os.path.join(frontend_dist, "logo-uco.svg")
-    if os.path.exists(p):
-        return FileResponse(p)
-    return FileResponse(os.path.join(settings.ROOT_DIR, "frontend", "public", "logo-uco.svg"))
-
-@app.get("/favicon.svg")
-def serve_favicon():
-    p = os.path.join(frontend_dist, "favicon.svg")
-    if os.path.exists(p):
-        return FileResponse(p)
-    return FileResponse(os.path.join(settings.ROOT_DIR, "frontend", "public", "favicon.svg"))
-
-@app.get("/")
-def serve_root():
-    index_path = os.path.join(frontend_dist, "index.html")
-    if os.path.exists(index_path):
-        return FileResponse(index_path)
-    return {
-        "sistema": settings.PROJECT_NAME,
-        "version": settings.PROJECT_VERSION,
-        "motor_bd": settings.DB_ENGINE.upper(),
-        "estado": "Operativo en puerto 8000. Documentación interactiva en /docs"
-    }
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run("app.main:app", host="127.0.0.1", port=8000, reload=True)
+@app.get("/{full_path:path}", include_in_schema=False)
+def spa(full_path: str):
+    if full_path.startswith(settings.API_PREFIX.strip("/") + "/") or full_path == settings.API_PREFIX.strip("/"):
+        raise HTTPException(status_code=404, detail="Recurso no encontrado.")
+    if full_path:
+        candidate = (_dist / full_path).resolve()
+        if candidate.is_file() and _dist in candidate.parents:
+            return FileResponse(candidate)
+    index = _dist / "index.html"
+    if index.exists():
+        return FileResponse(index, headers={"Cache-Control": "no-cache"})
+    return JSONResponse({"sistema": settings.PROJECT_NAME, "estado": "API operativa. Compile el frontend (npm run build)."})

@@ -35,9 +35,20 @@ CATALOG: Dict[str, Dict[str, Any]] = {
         "status_code": 400
     },
     "AUTH_005": {
-        "user_message": "La nueva contraseña debe tener al menos 6 caracteres.",
+        "user_message": "La nueva contraseña no cumple la política de seguridad.",
         "technical_message": "Violación de política de complejidad de contraseña: longitud mínima no alcanzada.",
         "status_code": 400
+    },
+
+    "AUTH_006": {
+        "user_message": "Debe cambiar su contraseña temporal antes de continuar.",
+        "technical_message": "Usuario con must_change_password=True intentó acceder a un recurso protegido.",
+        "status_code": 403
+    },
+    "AUTH_007": {
+        "user_message": "Demasiados intentos fallidos. Espere unos minutos antes de volver a intentarlo.",
+        "technical_message": "Bloqueo temporal por límite de intentos de inicio de sesión.",
+        "status_code": 429
     },
 
     # -------------------------------------------------------------------
@@ -54,13 +65,19 @@ CATALOG: Dict[str, Dict[str, Any]] = {
         "status_code": 404
     },
     "USER_003": {
-        "user_message": "La cédula debe contener únicamente números y tener al menos 5 dígitos.",
+        "user_message": "El usuario (cédula) debe tener entre 4 y 30 caracteres alfanuméricos.",
         "technical_message": "Validación de formato fallida: el campo cédula no es numérico o no cumple longitud.",
         "status_code": 400
     },
     "USER_004": {
         "user_message": "El rol seleccionado no es válido. Los roles permitidos son Administrador o Consultor.",
         "technical_message": "Valor de rol inválido recibido fuera de la enumeración permitida.",
+        "status_code": 400
+    },
+
+    "USER_005": {
+        "user_message": "Operación no permitida: el sistema debe conservar al menos un administrador y no puede eliminarse a sí mismo.",
+        "technical_message": "Intento de eliminar/degradar el último administrador o la cuenta propia.",
         "status_code": 400
     },
 
@@ -108,18 +125,50 @@ CATALOG: Dict[str, Dict[str, Any]] = {
         "status_code": 404
     },
 
+    "DATA_009": {
+        "user_message": "El archivo supera el tamaño máximo permitido.",
+        "technical_message": "Tamaño de archivo mayor a MAX_FILE_UPLOAD_MB.",
+        "status_code": 413
+    },
+    "DATA_010": {
+        "user_message": "El archivo no contiene registros válidos.",
+        "technical_message": "DataFrame vacío tras limpieza.",
+        "status_code": 400
+    },
+
     # -------------------------------------------------------------------
     # MÉTRICAS Y CÁLCULOS SPADIES (METR)
     # -------------------------------------------------------------------
     "METR_001": {
-        "user_message": "El indicador solicitado no es válido. Opciones: TAI, TDA, TDPA, TDC, TGA.",
+        "user_message": "Los filtros solicitados no son válidos (nivel: pregrado/posgrado/todos; vista: ies/programa).",
         "technical_message": "Indicador SPADIES no reconocido por el motor analítico de métricas.",
         "status_code": 404
     },
     "METR_002": {
         "user_message": "No hay suficientes datos cargados para calcular las métricas seleccionadas.",
-        "technical_message": "Insuficiencia de periodos cargados en Data/ o user_uploads/ para generar series SPADIES.",
+        "technical_message": "Insuficiencia de periodos cargados para generar series SPADIES.",
         "status_code": 400
+    },
+
+    "PROG_001": {
+        "user_message": "El programa académico solicitado no existe en el catálogo.",
+        "technical_message": "ProgramCatalog no encontrado.",
+        "status_code": 404
+    },
+    "PROG_002": {
+        "user_message": "Ya existe un programa con ese nombre en el catálogo.",
+        "technical_message": "Conflicto de unicidad en program_catalog.name.",
+        "status_code": 400
+    },
+    "VAL_001": {
+        "user_message": "Los datos enviados no son válidos. Revise los campos e intente de nuevo.",
+        "technical_message": "Error de validación de esquema (RequestValidationError).",
+        "status_code": 422
+    },
+    "STU_001": {
+        "user_message": "No se encontraron registros académicos para el documento consultado.",
+        "technical_message": "Documento sin registros en enrollment/new/graduate records.",
+        "status_code": 404
     },
 
     # -------------------------------------------------------------------

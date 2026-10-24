@@ -1,189 +1,119 @@
 """
-SERVICIO DE CATÁLOGO DE PARÁMETROS DEL SISTEMA
-Universidad Católica de Oriente - Sistema Analítico de Deserción
+SERVICIO DE PARÁMETROS DEL SISTEMA
 
-Permite gestionar variables de configuración dinámicas (criterios SPADIES,
-límites de archivos, seguridad de sesiones) sin necesidad de modificar el código fuente.
+Parámetros configurables desde la aplicación. Todos los que aparecen aquí son
+usados efectivamente por el sistema (no hay parámetros decorativos). Las reglas
+metodológicas de SPADIES no son parametrizables para garantizar que las cifras
+sean comparables con las oficiales.
 """
 
 import logging
-from typing import List, Dict, Any, Optional
+from typing import Any, Dict, List
+
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import SystemParameter
 from app.core.messages import AppException
-from app.services.audit_service import log_audit_event
+from app.models import SystemParameter
+from app.services.audit_service import iso_utc, log_audit_event
 
 logger = logging.getLogger("uco_analytics.parameters")
 
 DEFAULT_PARAMETERS = [
-    {
-        "key": "SPADIES_CONSECUTIVE_ABSENCE_TERMS",
-        "value": "2",
-        "default_value": "2",
-        "description": "Número de periodos consecutivos de ausencia académica para tipificar a un estudiante como Desertor.",
-        "category": "SPADIES",
-        "data_type": "INTEGER",
-        "is_editable": True
-    },
-    {
-        "key": "MAX_FILE_UPLOAD_MB",
-        "value": "50",
-        "default_value": "50",
-        "description": "Límite máximo permitido en Megabytes (MB) para carga de archivos Excel o CSV.",
-        "category": "SISTEMA",
-        "data_type": "INTEGER",
-        "is_editable": True
-    },
-    {
-        "key": "SESSION_EXPIRATION_MINUTES",
-        "value": "60",
-        "default_value": "60",
-        "description": "Tiempo de inactividad de sesión en minutos antes del cierre automático del token JWT.",
-        "category": "SEGURIDAD",
-        "data_type": "INTEGER",
-        "is_editable": True
-    },
-    {
-        "key": "PASSWORD_MIN_LENGTH",
-        "value": "6",
-        "default_value": "6",
-        "description": "Longitud mínima obligatoria de caracteres para contraseñas de usuarios.",
-        "category": "SEGURIDAD",
-        "data_type": "INTEGER",
-        "is_editable": True
-    },
-    {
-        "key": "ACTIVE_ACADEMIC_YEAR",
-        "value": "2024",
-        "default_value": "2024",
-        "description": "Año académico de referencia activo para la clasificación analítica de permanencia.",
-        "category": "SPADIES",
-        "data_type": "INTEGER",
-        "is_editable": True
-    },
-    {
-        "key": "INSTITUTION_NAME",
-        "value": "Universidad Católica de Oriente (UCO)",
-        "default_value": "Universidad Católica de Oriente (UCO)",
-        "description": "Nombre institucional oficial para encabezados y reportes oficiales.",
-        "category": "GENERAL",
-        "data_type": "STRING",
-        "is_editable": True
-    },
-    {
-        "key": "DEFAULT_PERIOD_START",
-        "value": "1-2018",
-        "default_value": "1-2018",
-        "description": "Periodo académico base para el cómputo inicial de series cronológicas SPADIES.",
-        "category": "SPADIES",
-        "data_type": "STRING",
-        "is_editable": False
-    }
+    {"key": "MAX_FILE_UPLOAD_MB", "value": "30", "default_value": "30", "category": "SISTEMA", "data_type": "INTEGER",
+     "description": "Tamaño máximo (MB) permitido para cada archivo Excel o CSV cargado.", "min": 1, "max": 200},
+    {"key": "SESSION_EXPIRATION_MINUTES", "value": "60", "default_value": "60", "category": "SEGURIDAD", "data_type": "INTEGER",
+     "description": "Minutos de vigencia de la sesión (token) antes de pedir nuevamente el inicio de sesión.", "min": 5, "max": 720},
+    {"key": "PASSWORD_MIN_LENGTH", "value": "8", "default_value": "8", "category": "SEGURIDAD", "data_type": "INTEGER",
+     "description": "Longitud mínima de las contraseñas (deben combinar letras y números).", "min": 8, "max": 64},
+    {"key": "LOGIN_MAX_ATTEMPTS", "value": "5", "default_value": "5", "category": "SEGURIDAD", "data_type": "INTEGER",
+     "description": "Intentos fallidos de inicio de sesión permitidos antes del bloqueo temporal.", "min": 3, "max": 20},
+    {"key": "LOGIN_LOCKOUT_MINUTES", "value": "15", "default_value": "15", "category": "SEGURIDAD", "data_type": "INTEGER",
+     "description": "Minutos de bloqueo temporal tras superar los intentos fallidos.", "min": 1, "max": 1440},
+    {"key": "INSTITUTION_NAME", "value": "Universidad Católica de Oriente (UCO)",
+     "default_value": "Universidad Católica de Oriente (UCO)", "category": "GENERAL", "data_type": "STRING",
+     "description": "Nombre institucional para encabezados de reportes."},
 ]
+_BOUNDS = {p["key"]: (p.get("min"), p.get("max")) for p in DEFAULT_PARAMETERS}
+_OBSOLETE = ("SPADIES_CONSECUTIVE_ABSENCE_TERMS", "ACTIVE_ACADEMIC_YEAR", "DEFAULT_PERIOD_START")
 
-def seed_default_parameters(db: Session):
-    """Inicializa los parámetros por defecto del sistema si aún no existen."""
+
+def seed_default_parameters(db: Session) -> None:
+    existing = {p.key: p for p in db.scalars(select(SystemParameter)).all()}
+    for key in _OBSOLETE:
+        if key in existing:
+            db.delete(existing[key])
     for param in DEFAULT_PARAMETERS:
-        existing = db.query(SystemParameter).filter(SystemParameter.key == param["key"]).first()
-        if not existing:
-            new_p = SystemParameter(**param)
-            db.add(new_p)
+        data = {k: v for k, v in param.items() if k not in ("min", "max")}
+        current = existing.get(param["key"])
+        if current is None:
+            db.add(SystemParameter(is_editable=True, **data))
+        else:
+            current.description = data["description"]
+            current.default_value = data["default_value"]
+            current.category = data["category"]
+            lo, hi = param.get("min"), param.get("max")
+            if lo is not None:
+                try:
+                    v = int(current.value)
+                    if v < lo or v > hi:
+                        current.value = data["default_value"]
+                except ValueError:
+                    current.value = data["default_value"]
     db.commit()
-    logger.info("Catálogo de parámetros del sistema verificado/inicializado.")
+
 
 def get_all_parameters(db: Session) -> List[Dict[str, Any]]:
-    """Retorna la lista de todos los parámetros del sistema."""
-    params = db.query(SystemParameter).order_by(SystemParameter.category, SystemParameter.key).all()
+    params = db.scalars(select(SystemParameter).order_by(SystemParameter.category, SystemParameter.key)).all()
     return [
         {
-            "id": p.id,
-            "key": p.key,
-            "value": p.value,
-            "default_value": p.default_value,
-            "description": p.description,
-            "category": p.category,
-            "data_type": p.data_type,
-            "is_editable": p.is_editable,
-            "updated_at": p.updated_at.strftime("%Y-%m-%d %H:%M:%S") if p.updated_at else "",
-            "updated_by": p.updated_by or "Sistema"
+            "key": p.key, "value": p.value, "default_value": p.default_value, "description": p.description,
+            "category": p.category, "data_type": p.data_type, "is_editable": bool(p.is_editable),
+            "min": _BOUNDS.get(p.key, (None, None))[0], "max": _BOUNDS.get(p.key, (None, None))[1],
+            "updated_at": iso_utc(p.updated_at), "updated_by": p.updated_by or "Sistema",
         }
         for p in params
     ]
 
+
 def get_parameter_value(db: Session, key: str, fallback: Any = None) -> Any:
-    """Retorna el valor tipado (int, bool, float, str) de un parámetro según su configuración."""
-    param = db.query(SystemParameter).filter(SystemParameter.key == key).first()
+    param = db.scalar(select(SystemParameter).where(SystemParameter.key == key))
     if not param:
         return fallback
-
-    val = param.value
-    dt = param.data_type.upper()
     try:
-        if dt == "INTEGER":
-            return int(val)
-        elif dt == "FLOAT":
-            return float(val)
-        elif dt == "BOOLEAN":
-            return val.lower() in ["true", "1", "yes", "si"]
-        return str(val)
+        if param.data_type.upper() == "INTEGER":
+            return int(param.value)
+        if param.data_type.upper() == "FLOAT":
+            return float(param.value)
+        if param.data_type.upper() == "BOOLEAN":
+            return param.value.lower() in ("true", "1", "si", "yes")
+        return str(param.value)
     except Exception:
         return fallback
 
-def update_parameter(
-    db: Session,
-    key: str,
-    new_value: str,
-    current_user_name: str = "Administrador",
-    ip_address: Optional[str] = None,
-    user_agent: Optional[str] = None
-) -> Dict[str, Any]:
-    """Actualiza un parámetro del sistema y registra la acción en la auditoría."""
-    param = db.query(SystemParameter).filter(SystemParameter.key == key).first()
+
+def update_parameter(db: Session, key: str, new_value: str, actor, ip=None, ua=None) -> Dict[str, Any]:
+    param = db.scalar(select(SystemParameter).where(SystemParameter.key == key))
     if not param:
         raise AppException("PARAM_001")
-
     if not param.is_editable:
         raise AppException("AUTH_003", custom_user_message="Este parámetro es estructural y no puede modificarse.")
-
-    val_str = str(new_value).strip()
-    dt = param.data_type.upper()
-
-    # Validar tipo de dato
-    try:
-        if dt == "INTEGER":
-            int(val_str)
-        elif dt == "FLOAT":
-            float(val_str)
-        elif dt == "BOOLEAN":
-            if val_str.lower() not in ["true", "false", "1", "0", "si", "no"]:
-                raise ValueError()
-    except ValueError:
-        raise AppException("PARAM_002", technical_detail=f"Casting fallido para clave {key} con valor '{val_str}' a {dt}.")
-
-    old_value = param.value
-    param.value = val_str
-    param.updated_by = current_user_name
+    val = str(new_value).strip()
+    if param.data_type.upper() == "INTEGER":
+        try:
+            num = int(val)
+        except ValueError:
+            raise AppException("PARAM_002")
+        lo, hi = _BOUNDS.get(key, (None, None))
+        if (lo is not None and num < lo) or (hi is not None and num > hi):
+            raise AppException("PARAM_002", custom_user_message=f"El valor debe estar entre {lo} y {hi}.")
+        val = str(num)
+    elif not val or len(val) > 255:
+        raise AppException("PARAM_002", custom_user_message="El valor no puede estar vacío ni superar 255 caracteres.")
+    old = param.value
+    param.value = val
+    param.updated_by = actor.username
     db.commit()
-    db.refresh(param)
-
-    # Registrar en auditoría en lenguaje institucional
-    log_audit_event(
-        db=db,
-        action="EDITAR",
-        entity="PARAMETRO",
-        entity_id=param.key,
-        username=current_user_name,
-        user_name=current_user_name,
-        user_role="administrador",
-        ip_address=ip_address,
-        user_agent=user_agent,
-        details=f"Actualización del parámetro del sistema '{param.key}' ({param.description}): valor anterior '{old_value}', nuevo valor '{param.value}'."
-    )
-
-    return {
-        "key": param.key,
-        "value": param.value,
-        "description": param.description,
-        "updated_at": param.updated_at.strftime("%Y-%m-%d %H:%M:%S")
-    }
+    log_audit_event(db, "EDITAR", "PARAMETRO", param.key, user=actor, ip_address=ip, user_agent=ua,
+                    details=f"Parámetro '{param.key}': valor anterior '{old}', nuevo valor '{val}'.")
+    return {"key": param.key, "value": param.value}

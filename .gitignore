@@ -1,36 +1,47 @@
-# Entornos virtuales
+# ----- Datos institucionales (información personal: NUNCA al repositorio) -----
+Datos_UCO/
+*.xls
+*.xlsx
+*.csv
+!backend/tests/fixtures/*.csv
+
+# ----- Secretos y bases de datos locales -----
+.env
+.env.*
+!.env.example
+backend/.secret_key
+.secret_key
+*.db
+*.db-wal
+*.db-shm
+*.sqlite3
+
+# ----- Python -----
 .venv/
 venv/
 env/
-
-# Python
 __pycache__/
 *.py[cod]
-*$py.class
-*.sqlite3
 
-# Base de datos local
-datos_uco.db
-*.db
-
-# Subidas temporales y respaldos
-respaldo/
-backend/user_uploads/*
-!backend/user_uploads/.gitkeep
-user_uploads/*
-!user_uploads/.gitkeep
-
-# Node / Frontend
+# ----- Node / frontend -----
 node_modules/
 frontend/dist/
-frontend/node_modules/
 
-# Entorno y credenciales
-.env
-.env.local
+# ----- Artefactos de compilación -----
+build_temp/
+/dist/
+installer/dist/
+installer/build/
+installer/Output/
+*.spec.bak
 
-# IDEs y SO
+# ----- Cargas antiguas (v1/v2) -----
+backend/user_uploads/
+user_uploads/
+
+# ----- IDE y sistema -----
 .vscode/
 .idea/
 .DS_Store
 Thumbs.db
+respaldo_v2/

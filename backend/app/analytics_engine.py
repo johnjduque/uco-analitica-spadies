@@ -1,13 +1,46 @@
+import sys
 import os
 import re
 import pandas as pd
 from app.program_codes import translate_program_code, find_document_column, find_program_column
+from app.core.config import settings
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-USER_UPLOADS_DIR = os.path.join(BASE_DIR, "user_uploads")
+def get_extracted_dirs():
+    """Retorna los directorios donde residen los archivos cargados por el usuario."""
+    dirs = []
+    # 1. Directorio configurado oficial
+    if hasattr(settings, 'USER_UPLOADS_DIR') and settings.USER_UPLOADS_DIR and os.path.exists(settings.USER_UPLOADS_DIR):
+        dirs.append(settings.USER_UPLOADS_DIR)
+    
+    # 2. Directorio persistente
+    if hasattr(settings, 'PERSISTENT_DIR') and settings.PERSISTENT_DIR:
+        p_up = os.path.join(settings.PERSISTENT_DIR, "user_uploads")
+        if os.path.exists(p_up) and p_up not in dirs:
+            dirs.append(p_up)
 
-# Las métricas oficiales se calculan estrictamente sobre los archivos cargados por el usuario
-EXTRACTED_DIRS = [USER_UPLOADS_DIR]
+    # 3. Junto al ejecutable
+    if getattr(sys, 'frozen', False):
+        exe_up = os.path.join(os.path.dirname(sys.executable), "user_uploads")
+        if os.path.exists(exe_up) and exe_up not in dirs:
+            dirs.append(exe_up)
+
+    # 4. En LOCALAPPDATA
+    local_app_up = os.path.join(os.getenv("LOCALAPPDATA", os.path.expanduser("~")), "UCO_Analytics", "user_uploads")
+    if os.path.exists(local_app_up) and local_app_up not in dirs:
+        dirs.append(local_app_up)
+
+    # 5. En el backend relativo
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    b_up = os.path.join(base_dir, "user_uploads")
+    if os.path.exists(b_up) and b_up not in dirs:
+        dirs.append(b_up)
+
+    # 6. Carpeta Data si existe
+    if hasattr(settings, 'DATA_DIR') and settings.DATA_DIR and os.path.exists(settings.DATA_DIR):
+        if settings.DATA_DIR not in dirs:
+            dirs.append(settings.DATA_DIR)
+
+    return dirs
 
 def extract_period_from_str(text: str) -> str:
     """Extrae el código de periodo semestral (ej: 1-2018) desde un nombre de archivo o texto"""
@@ -43,16 +76,14 @@ def period_index(period_str: str) -> int:
 def get_all_dataset_periods():
     """Obtiene dinámicamente la lista ordenada cronológicamente de todos los periodos efectivamente cargados por el usuario."""
     detected_periods = set()
-    for ext_dir in EXTRACTED_DIRS:
+    for ext_dir in get_extracted_dirs():
         if os.path.exists(ext_dir):
             for f in os.listdir(ext_dir):
-                if f.startswith('Matriculados') and f.endswith(('.xls', '.xlsx')):
+                if (f.startswith('Matriculados') or f.startswith('Egresados') or f.startswith('Graduados')) and f.endswith(('.xls', '.xlsx')):
                     p = extract_period_from_str(f)
                     if p:
                         detected_periods.add(p)
     return sorted(list(detected_periods), key=period_index)
-
-ALL_PERIODS = get_all_dataset_periods()
 
 def is_period_on_or_before(p_grad: str, p_target: str) -> bool:
     """Evalúa si la graduación ocurrió en o antes del periodo objetivo"""
@@ -77,10 +108,10 @@ def load_all_dataset(selected_programs=None):
 
     processed_files = set()
 
-    for ext_dir in EXTRACTED_DIRS:
+    for ext_dir in get_extracted_dirs():
         if os.path.exists(ext_dir):
-            for f in os.listdir(ext_dir):
-                if f.startswith('Egresados') and f.endswith(('.xls', '.xlsx')) and f not in processed_files:
+            for f in sorted(os.listdir(ext_dir)):
+                if (f.startswith('Egresados') or f.startswith('Graduados')) and f.endswith(('.xls', '.xlsx')) and f not in processed_files:
                     processed_files.add(f)
                     path = os.path.join(ext_dir, f)
                     p_file = extract_period_from_str(f)
@@ -129,16 +160,18 @@ def load_all_dataset(selected_programs=None):
     students_first_period = {} # doc -> {period: p, prog: prog}
     students_first_period_by_prog = {} # (doc, prog) -> period
 
-    for p in all_periods:
-        found = False
-        for ext in [".xlsx", ".xls"]:
-            if found:
-                break
-            fname = f"Matriculados {p}{ext}"
-            for ext_dir in EXTRACTED_DIRS:
-                path = os.path.join(ext_dir, fname)
-                if not found and os.path.exists(path):
-                    found = True
+    processed_matriculados = set()
+    for ext_dir in get_extracted_dirs():
+        if os.path.exists(ext_dir):
+            for f in sorted(os.listdir(ext_dir)):
+                if f.startswith('Matriculados') and f.endswith(('.xls', '.xlsx')) and f not in processed_matriculados:
+                    processed_matriculados.add(f)
+                    p = extract_period_from_str(f)
+                    if not p:
+                        continue
+                    if p not in enrollments:
+                        enrollments[p] = []
+                    path = os.path.join(ext_dir, f)
                     try:
                         df = pd.read_excel(path)
                         doc_col = find_document_column(df.columns)

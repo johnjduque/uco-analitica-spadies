@@ -1,13 +1,14 @@
-fastapi>=0.110.0
-uvicorn>=0.28.0
-sqlalchemy>=2.0.0
-pydantic>=2.6.0
-pandas>=2.2.0
-xlrd>=2.0.2
-openpyxl>=3.1.2
-pyjwt>=2.8.0
-passlib[bcrypt]>=1.7.4
-python-multipart>=0.0.9
-tabulate>=0.9.0
-python-dotenv>=1.0.0
-pyodbc>=5.0.0
+# Dependencias de ejecución (versiones acotadas para evitar rupturas por actualizaciones mayores)
+fastapi>=0.110,<1.0
+uvicorn[standard]>=0.29,<1.0
+sqlalchemy>=2.0.25,<2.1
+pydantic>=2.6,<3.0
+python-multipart>=0.0.9,<1.0
+python-dotenv>=1.0,<2.0
+pyjwt>=2.8,<3.0
+bcrypt>=4.1,<5.0
+pandas>=2.2,<3.0
+openpyxl>=3.1.2,<4.0
+xlrd>=2.0.1,<3.0
+# Solo necesario si DB_ENGINE=sqlserver
+pyodbc>=5.0,<6.0

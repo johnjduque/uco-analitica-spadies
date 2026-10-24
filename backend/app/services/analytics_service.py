@@ -6,7 +6,9 @@ Ejecuta el cómputo de los 5 indicadores oficiales (TDA, TDC, TDPA, TGA, TAI),
 búsqueda individual de estudiantes con trayectoria completa y resumen global con clasificación de estados.
 """
 
+import sys
 import os
+import re
 import logging
 import pandas as pd
 from typing import Dict, Any, List, Optional
@@ -14,15 +16,45 @@ from typing import Dict, Any, List, Optional
 from app.core.config import settings
 from app.core.messages import AppException
 from app.program_codes import translate_program_code, find_document_column, find_program_column
-from app.analytics_engine import calculate_spadies_metrics, get_all_dataset_periods
+from app.analytics_engine import calculate_spadies_metrics, get_all_dataset_periods, extract_period_from_str, period_index
 
 logger = logging.getLogger("uco_analytics.analytics_service")
 
 def get_extracted_dirs() -> List[str]:
-    """Retorna los directorios de datos disponibles, estrictamente desde user_uploads."""
+    """Retorna los directorios de datos disponibles dinámicamente."""
     dirs = []
-    if os.path.exists(settings.USER_UPLOADS_DIR):
+    # 1. Directorio oficial configurado
+    if hasattr(settings, 'USER_UPLOADS_DIR') and settings.USER_UPLOADS_DIR and os.path.exists(settings.USER_UPLOADS_DIR):
         dirs.append(settings.USER_UPLOADS_DIR)
+    
+    # 2. Directorio persistente
+    if hasattr(settings, 'PERSISTENT_DIR') and settings.PERSISTENT_DIR:
+        p_up = os.path.join(settings.PERSISTENT_DIR, "user_uploads")
+        if os.path.exists(p_up) and p_up not in dirs:
+            dirs.append(p_up)
+
+    # 3. Junto al ejecutable
+    if getattr(sys, 'frozen', False):
+        exe_up = os.path.join(os.path.dirname(sys.executable), "user_uploads")
+        if os.path.exists(exe_up) and exe_up not in dirs:
+            dirs.append(exe_up)
+
+    # 4. En LOCALAPPDATA
+    local_app_up = os.path.join(os.getenv("LOCALAPPDATA", os.path.expanduser("~")), "UCO_Analytics", "user_uploads")
+    if os.path.exists(local_app_up) and local_app_up not in dirs:
+        dirs.append(local_app_up)
+
+    # 5. En el backend relativo
+    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    b_up = os.path.join(base_dir, "user_uploads")
+    if os.path.exists(b_up) and b_up not in dirs:
+        dirs.append(b_up)
+
+    # 6. Carpeta Data si existe
+    if hasattr(settings, 'DATA_DIR') and settings.DATA_DIR and os.path.exists(settings.DATA_DIR):
+        if settings.DATA_DIR not in dirs:
+            dirs.append(settings.DATA_DIR)
+
     return dirs
 
 # Definición matemática y conceptual oficial del Manual SPADIES 3.0
@@ -91,6 +123,7 @@ def get_student_status_by_cedula(cedula: str) -> Dict[str, Any]:
     history = []
     student_program = None
     graduation_info = None
+    is_disciplinarily_withdrawn = False
     all_periods = get_all_dataset_periods()
 
     # 1. Buscar en Egresados
@@ -122,44 +155,55 @@ def get_student_status_by_cedula(cedula: str) -> Dict[str, Any]:
 
     # 2. Buscar en Matriculados por periodo
     registered_periods = []
-    for p in all_periods:
-        found_file = False
-        for ext in [".xlsx", ".xls"]:
-            if found_file:
-                break
-            fname = f"Matriculados {p}{ext}"
-            for extract_dir in extract_dirs:
-                path = os.path.join(extract_dir, fname)
-                if not found_file and os.path.exists(path):
-                    found_file = True
-                    try:
-                        df = pd.read_excel(path)
-                        doc_col = find_document_column(df.columns)
-                        prog_col = find_program_column(df.columns)
-                        if doc_col and prog_col:
-                            df['DOC_CLEAN'] = df[doc_col].astype(str).str.strip().str.replace('.0', '', regex=False)
-                            match = df[df['DOC_CLEAN'] == cedula_str]
-                            if not match.empty:
-                                row = match.iloc[0]
-                                registered_periods.append(p)
-                                prog_name = translate_program_code(str(row[prog_col]))
-                                if not student_program:
-                                    student_program = prog_name
-                                history.append({
-                                    'periodo': p,
-                                    'registrado': True,
-                                    'estado': 'Matriculado',
-                                    'programa': prog_name
-                                })
-                            else:
-                                history.append({
-                                    'periodo': p,
-                                    'registrado': False,
-                                    'estado': 'No Matriculado',
-                                    'programa': '-'
-                                })
-                    except Exception:
-                        pass
+    detected_matriculados = []
+    processed_matriculados = set()
+    for extract_dir in extract_dirs:
+        if os.path.exists(extract_dir):
+            for f in sorted(os.listdir(extract_dir)):
+                if f.startswith('Matriculados') and f.endswith(('.xls', '.xlsx')) and f not in processed_matriculados:
+                    processed_matriculados.add(f)
+                    p_file = extract_period_from_str(f)
+                    if p_file:
+                        detected_matriculados.append((p_file, os.path.join(extract_dir, f)))
+
+    # Ordenar cronológicamente
+    detected_matriculados = sorted(detected_matriculados, key=lambda x: period_index(x[0]))
+    all_periods = [x[0] for x in detected_matriculados] if detected_matriculados else get_all_dataset_periods()
+
+    for p, path in detected_matriculados:
+        try:
+            df = pd.read_excel(path)
+            doc_col = find_document_column(df.columns)
+            prog_col = find_program_column(df.columns)
+            status_cols = [c for c in df.columns if any(k in str(c).lower() for k in ['estado', 'situacion', 'motivo', 'disciplinario', 'retiro'])]
+            if doc_col and prog_col:
+                df['DOC_CLEAN'] = df[doc_col].astype(str).str.strip().str.replace('.0', '', regex=False)
+                match = df[df['DOC_CLEAN'] == cedula_str]
+                if not match.empty:
+                    row = match.iloc[0]
+                    registered_periods.append(p)
+                    prog_name = translate_program_code(str(row[prog_col]))
+                    if not student_program:
+                        student_program = prog_name
+                    for sc in status_cols:
+                        val = str(row[sc]).lower()
+                        if any(term in val for term in ['disciplinario', 'sancion', 'expulsion', 'disciplina']):
+                            is_disciplinarily_withdrawn = True
+                    history.append({
+                        'periodo': p,
+                        'registrado': True,
+                        'estado': 'Matriculado',
+                        'programa': prog_name
+                    })
+                else:
+                    history.append({
+                        'periodo': p,
+                        'registrado': False,
+                        'estado': 'No Matriculado',
+                        'programa': '-'
+                    })
+        except Exception:
+            pass
 
     if not graduation_info and len(registered_periods) == 0:
         return {
@@ -168,12 +212,14 @@ def get_student_status_by_cedula(cedula: str) -> Dict[str, Any]:
             "message": f"No se encontraron registros académicos para el número de cédula {cedula_str}."
         }
 
-    # Evaluar estado SPADIES según manual oficial (activo si está en alguno de los últimos 2 periodos)
+    # Evaluar estado SPADIES según manual oficial
     last_two_periods = all_periods[-2:] if len(all_periods) >= 2 else all_periods
-    if graduation_info:
-        calculated_state = 'Graduado'
+    if is_disciplinarily_withdrawn:
+        calculated_state = 'Retirado'
     elif any(p in registered_periods for p in last_two_periods):
         calculated_state = 'Activo'
+    elif graduation_info:
+        calculated_state = 'Graduado'
     else:
         calculated_state = 'Desertor'
 
@@ -215,76 +261,97 @@ def get_student_status_summary(
     if not extract_dirs:
         return empty_summary
 
-    all_periods = get_all_dataset_periods()
-    last_two_periods = all_periods[-2:] if len(all_periods) >= 2 else all_periods
-
-    # 1. Graduados
+    # 1. Graduados / Egresados
     graduados = set()
     grad_prog = {}
     processed_egresados = set()
     for extract_dir in extract_dirs:
-        for f in sorted(os.listdir(extract_dir)):
-            if f.startswith('Egresados') and f.endswith(('.xls', '.xlsx')) and f not in processed_egresados:
-                processed_egresados.add(f)
-                path = os.path.join(extract_dir, f)
-                try:
-                    df = pd.read_excel(path)
-                    doc_col = find_document_column(df.columns)
-                    prog_col = find_program_column(df.columns)
-                    if doc_col:
-                        df['DOC'] = df[doc_col].astype(str).str.strip().str.replace('.0', '', regex=False)
-                        for _, r in df.iterrows():
-                            doc = r['DOC']
-                            graduados.add(doc)
-                            if prog_col:
-                                grad_prog[doc] = translate_program_code(str(r[prog_col]))
-                except Exception:
-                    pass
-
-    # 2. Matriculados
-    student_periods = {}
-    student_prog = {}
-    for p in all_periods:
-        found_file = False
-        for ext in [".xlsx", ".xls"]:
-            if found_file:
-                break
-            fname = f"Matriculados {p}{ext}"
-            for extract_dir in extract_dirs:
-                path = os.path.join(extract_dir, fname)
-                if not found_file and os.path.exists(path):
-                    found_file = True
+        if os.path.exists(extract_dir):
+            for f in sorted(os.listdir(extract_dir)):
+                if (f.startswith('Egresados') or f.startswith('Graduados')) and f.endswith(('.xls', '.xlsx')) and f not in processed_egresados:
+                    processed_egresados.add(f)
+                    path = os.path.join(extract_dir, f)
                     try:
                         df = pd.read_excel(path)
                         doc_col = find_document_column(df.columns)
                         prog_col = find_program_column(df.columns)
-                        if doc_col and prog_col:
+                        if doc_col:
                             df['DOC'] = df[doc_col].astype(str).str.strip().str.replace('.0', '', regex=False)
-                            df['PROG'] = df[prog_col].apply(translate_program_code)
                             for _, r in df.iterrows():
                                 doc = r['DOC']
-                                pr = r['PROG']
-                                if doc not in student_periods:
-                                    student_periods[doc] = set()
-                                student_periods[doc].add(p)
-                                student_prog[doc] = pr
+                                graduados.add(doc)
+                                if prog_col:
+                                    grad_prog[doc] = translate_program_code(str(r[prog_col]))
                     except Exception:
                         pass
+
+    # 2. Matriculados
+    student_periods = {}
+    student_prog = {}
+    retirados = set()
+    detected_matriculados = []
+    processed_matriculados = set()
+
+    for extract_dir in extract_dirs:
+        if os.path.exists(extract_dir):
+            for f in sorted(os.listdir(extract_dir)):
+                if f.startswith('Matriculados') and f.endswith(('.xls', '.xlsx')) and f not in processed_matriculados:
+                    processed_matriculados.add(f)
+                    p_file = extract_period_from_str(f)
+                    if p_file:
+                        detected_matriculados.append((p_file, os.path.join(extract_dir, f)))
+
+    # Ordenar cronológicamente
+    detected_matriculados = sorted(detected_matriculados, key=lambda x: period_index(x[0]))
+    all_periods = [x[0] for x in detected_matriculados] if detected_matriculados else get_all_dataset_periods()
+    last_two_periods = all_periods[-2:] if len(all_periods) >= 2 else all_periods
+
+    for p, path in detected_matriculados:
+        try:
+            df = pd.read_excel(path)
+            doc_col = find_document_column(df.columns)
+            prog_col = find_program_column(df.columns)
+            status_cols = [c for c in df.columns if any(k in str(c).lower() for k in ['estado', 'situacion', 'motivo', 'disciplinario', 'retiro'])]
+            if doc_col and prog_col:
+                df['DOC'] = df[doc_col].astype(str).str.strip().str.replace('.0', '', regex=False)
+                df['PROG'] = df[prog_col].apply(translate_program_code)
+                for _, r in df.iterrows():
+                    doc = r['DOC']
+                    pr = r['PROG']
+                    if doc not in student_periods:
+                        student_periods[doc] = set()
+                    student_periods[doc].add(p)
+                    student_prog[doc] = pr
+
+                    # Comprobar si registra retiro disciplinario
+                    for sc in status_cols:
+                        val = str(r[sc]).lower()
+                        if any(term in val for term in ['disciplinario', 'sancion', 'expulsion', 'disciplina']):
+                            retirados.add(doc)
+        except Exception:
+            pass
 
     all_students = set(student_periods.keys()).union(graduados)
     counts = {'Activo': 0, 'Desertor': 0, 'Graduado': 0, 'Retirado': 0}
     full_list = []
 
     for doc in sorted(list(all_students)):
-        pr = grad_prog.get(doc) or student_prog.get(doc) or "Programa UCO"
-        if doc in graduados:
+        pr = student_prog.get(doc) or grad_prog.get(doc) or "Programa UCO"
+        p_set = student_periods.get(doc, set())
+        
+        # Jerarquía SPADIES 3.0:
+        # 1. Si tiene retiro disciplinario registrado -> Retirado
+        # 2. Si está matriculado en alguno de los últimos dos periodos -> Activo
+        # 3. Si no está activo y figura en egresados/graduados -> Graduado
+        # 4. Si no está activo ni graduado ni retirado (ausente 2+ periodos) -> Desertor
+        if doc in retirados:
+            st = 'Retirado'
+        elif any(p in p_set for p in last_two_periods):
+            st = 'Activo'
+        elif doc in graduados:
             st = 'Graduado'
         else:
-            p_set = student_periods.get(doc, set())
-            if any(p in p_set for p in last_two_periods):
-                st = 'Activo'
-            else:
-                st = 'Desertor'
+            st = 'Desertor'
 
         counts[st] += 1
 

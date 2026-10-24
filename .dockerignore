@@ -1,0 +1,16 @@
+**/node_modules
+**/__pycache__
+**/*.pyc
+.git
+.venv
+backend/.venv
+backend/.env
+backend/.secret_key
+backend/*.db
+backend/user_uploads
+frontend/dist
+build_temp
+dist
+installer/Output
+Datos_UCO
+Documentacion
