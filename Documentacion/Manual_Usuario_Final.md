@@ -54,10 +54,12 @@ Hay tres formas de usar el sistema. Elija según cuántas personas lo necesiten:
    * Si Windows muestra *"Windows protegió su PC"*, pulse **Más información → Ejecutar de todas formas**. Aparece porque el programa aún no tiene firma digital.
 2. Abra **UCO Analytics** desde el menú Inicio o el escritorio.
 3. Se abrirá una ventana negra (consola) y luego el navegador en `http://127.0.0.1:8000`. Si el puerto 8000 está ocupado, el sistema usa el siguiente libre y lo indica en la consola.
-4. **No cierre la ventana negra** mientras use el sistema. Para salir, ciérrela.
+4. **No cierre la ventana negra** mientras use el sistema. Para salir, ciérrela. Esa ventana **es el servidor**: mientras esté abierta, el sistema funciona aunque cierre el navegador.
 5. La primera vez, la consola muestra la **contraseña temporal del usuario `admin`**. Anótela: **no se repite**. Escríbala en el primer campo de la pantalla de cambio de contraseña (ver 3.2).
 
 Los datos quedan en `%LOCALAPPDATA%\UCO_Analytics` (tecla Windows + R, pegue esa ruta y pulse Enter).
+
+**Inicio automático con Windows (opcional).** Durante la instalación aparece la casilla *"Iniciar UCO Analytics automáticamente al iniciar sesión en Windows"*. Si la marca, el servidor se levanta solo cada vez que inicia sesión en el equipo, **minimizado y sin abrir el navegador**; usted solo escribe la dirección (o usa su favorito). Se recomienda en el equipo que atiende a otros usuarios (modalidad B). Para activarlo después de instalar, vuelva a ejecutar el instalador y marque la casilla; para quitarlo, borre el acceso directo **UCO Analytics** de la carpeta de inicio (tecla Windows + R, escriba `shell:startup` y pulse Enter). Si cierra la ventana minimizada, el servidor se apaga.
 
 ### 2.2. Modalidad B. Red local (varios usuarios, un equipo servidor)
 Úsela si no hay servidor y todos trabajan en la misma red o WiFi de la universidad.
@@ -107,6 +109,7 @@ Resultado: los usuarios solo reciben la dirección (`https://analitica.uco.edu.c
   | Confirmar nueva contraseña | La misma nueva contraseña |
 
 * La nueva contraseña debe tener **mínimo 8 caracteres, con letras y números**, y no puede ser igual a la cédula ni a la temporal.
+* En todos los campos de contraseña hay un **ojo** a la derecha: púlselo para ver lo que escribió y vuelva a pulsarlo para ocultarlo. Es opcional; por defecto la contraseña se muestra oculta. Úselo para verificar que escribió bien la temporal, y procure que nadie más vea la pantalla.
 * Tras **5 intentos fallidos** el acceso se bloquea temporalmente durante 15 minutos (valores configurables).
 * La sesión expira tras 60 minutos de uso (configurable); basta volver a ingresar.
 
@@ -120,6 +123,22 @@ El administrador usa **Restablecer clave** sobre el usuario. Se genera una nueva
 
 ### 3.5. Cambiar mi contraseña
 Menú **Cambiar contraseña** → contraseña actual, nueva y confirmación.
+
+### 3.6. Cerrar sesión y volver a entrar
+Cerrar el navegador o cerrar sesión **no apaga el sistema**. Lo que lo mantiene encendido es la **ventana negra** (modalidad A y B). Según lo que haya cerrado, haga lo siguiente:
+
+| Qué cerró | El sistema sigue encendido | Cómo volver a entrar |
+|---|---|---|
+| Pestaña o navegador | Sí | Abra el navegador y escriba `http://127.0.0.1:8000` (o la dirección que mostró la ventana negra). Si no pasaron 60 minutos, entra directo; si no, pide usuario y contraseña. Guarde la dirección como favorito. |
+| Cerró sesión con **Salir** | Sí | Quedará en la pantalla de inicio de sesión. Si la cerró, abra la dirección de arriba e ingrese con su usuario y contraseña. |
+| La ventana negra (o reinició el equipo) | No | Abra **UCO Analytics** desde el menú Inicio o el escritorio. Espere unos segundos a que se abra el navegador e ingrese. Si la dirección no abre, es porque el servidor está apagado. |
+| Instaló con **inicio automático** | Sí, al iniciar sesión en Windows | No abra el programa: solo escriba la dirección en el navegador. Si no abre, espere un minuto tras iniciar Windows. |
+
+Notas:
+* Los **datos y usuarios no se pierden** al cerrar: quedan guardados en el equipo.
+* La contraseña temporal del administrador **solo se muestra la primera vez**; después use la que usted definió.
+* No cierre la ventana negra mientras alguien carga un archivo: la carga se interrumpe.
+* En red local (modalidad B), los demás usuarios solo pueden entrar mientras el equipo servidor tenga el programa encendido. En línea (modalidad C) basta abrir la dirección web.
 
 ---
 
@@ -323,7 +342,7 @@ El sistema muestra el motivo en un recuadro rojo. Primero lea el mensaje: casi s
 | *Los filtros solicitados no son válidos* | Recargue la página (F5) y vuelva a elegir los filtros. |
 | *Ocurrió un error interno en el servidor* | Recargue la página. Si persiste, anote la hora y comuníquese con soporte (el administrador puede ubicar el evento en la auditoría). |
 | *No fue posible conectar con la base de datos* | En servidor, avise a Sistemas. En Windows, cierre la aplicación y ábrala de nuevo. |
-| La página no abre (modalidad A) | Verifique que la **ventana negra** siga abierta; si la cerró, abra el programa de nuevo. |
+| La página no abre (modalidad A) | Verifique que la **ventana negra** siga abierta; si la cerró, abra el programa de nuevo (ver 3.6). |
 | La página no abre desde otro equipo o celular (modalidad B) | Confirme que el equipo servidor está encendido con la aplicación abierta, que está en la misma red, que la IP no cambió y que el puerto 8000 está permitido en el firewall (ver 2.2). |
 | *Windows protegió su PC* al instalar | Pulse **Más información → Ejecutar de todas formas** (ver 2.1). |
 | El puerto 8000 está ocupado | El programa elige otro automáticamente; use la dirección que muestre la consola. |

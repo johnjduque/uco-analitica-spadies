@@ -41,6 +41,10 @@ input, select, textarea {
   border: 1px solid var(--line-2); border-radius: 7px; padding: 8px 10px; min-height: 38px; outline: none;
 }
 input:focus, select:focus, textarea:focus { border-color: var(--green); box-shadow: 0 0 0 3px rgba(4, 120, 87, 0.15); }
+.pw-wrap { position: relative; display: flex; }
+.pw-wrap input { flex: 1; min-width: 0; padding-right: 42px; }
+.pw-toggle { position: absolute; top: 0; right: 0; height: 100%; width: 40px; display: flex; align-items: center; justify-content: center; background: none; border: 0; border-radius: 0 7px 7px 0; color: var(--muted); cursor: pointer; }
+.pw-toggle:hover, .pw-toggle:focus-visible, .pw-toggle[aria-pressed='true'] { color: var(--green); }
 input[type='checkbox'] { min-height: 0; accent-color: var(--green); width: 16px; height: 16px; }
 input[type='file'] { padding: 6px; }
 

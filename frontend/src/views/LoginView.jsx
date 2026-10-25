@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { api } from '../api/client';
-import { Alert, Field } from '../components/ui';
+import { Alert, Field, PasswordInput } from '../components/ui';
 
 export default function LoginView({ onLogin }) {
   const [username, setUsername] = useState('');
@@ -32,7 +32,7 @@ export default function LoginView({ onLogin }) {
             <input autoComplete="username" value={username} onChange={(e) => setUsername(e.target.value)} required autoFocus />
           </Field>
           <Field label="Contraseña">
-            <input type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+            <PasswordInput autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required />
           </Field>
           {error && <Alert type="error">{error}</Alert>}
           <button className="btn btn-primary btn-block" disabled={busy}>{busy ? 'Ingresando…' : 'Iniciar sesión'}</button>

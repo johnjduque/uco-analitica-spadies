@@ -4,6 +4,7 @@ PUNTO DE ENTRADA DE ESCRITORIO (ejecutable Windows)
 Inicia el servidor local y abre el navegador. Por seguridad escucha solo en
 127.0.0.1; para compartir en la red local defina APP_HOST=0.0.0.0 en el .env.
 Si el puerto configurado (APP_PORT, por defecto 8000) está ocupado, usa uno libre.
+Con el argumento --sin-navegador no abre el navegador (lo usa el inicio automático).
 """
 
 import os
@@ -46,7 +47,9 @@ def main():
         except Exception as exc:
             print(f"No se pudo abrir el navegador automáticamente: {exc}")
 
-    threading.Thread(target=open_browser, daemon=True).start()
+    # Con --sin-navegador (inicio automático con Windows) solo se levanta el servidor.
+    if "--sin-navegador" not in sys.argv:
+        threading.Thread(target=open_browser, daemon=True).start()
     print("=" * 70)
     print("   UNIVERSIDAD CATOLICA DE ORIENTE - UCO Analytics")
     print("   Sistema de analitica de desercion y permanencia estudiantil")

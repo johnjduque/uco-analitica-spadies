@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { api } from '../api/client';
-import { Alert, Field } from '../components/ui';
+import { Alert, Field, PasswordInput } from '../components/ui';
 
 /**
  * Cambio de contraseña del usuario autenticado.
@@ -35,13 +35,13 @@ export default function ChangePasswordView({ forced = false, onChanged }) {
     <form className="form narrow" onSubmit={submit}>
       {forced && <Alert type="warning">Por seguridad debe reemplazar la contraseña temporal o por defecto antes de continuar.</Alert>}
       <Field label={forced ? 'Contraseña temporal / actual' : 'Contraseña actual'}>
-        <input type="password" autoComplete="current-password" value={oldPwd} onChange={(e) => setOldPwd(e.target.value)} required />
+        <PasswordInput autoComplete="current-password" value={oldPwd} onChange={(e) => setOldPwd(e.target.value)} required />
       </Field>
       <Field label="Nueva contraseña" hint="Mínimo 8 caracteres, con letras y números. No puede ser igual a su usuario.">
-        <input type="password" autoComplete="new-password" value={newPwd} onChange={(e) => setNewPwd(e.target.value)} required />
+        <PasswordInput autoComplete="new-password" value={newPwd} onChange={(e) => setNewPwd(e.target.value)} required />
       </Field>
       <Field label="Confirmar nueva contraseña">
-        <input type="password" autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} required />
+        <PasswordInput autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} required />
       </Field>
       {error && <Alert type="error">{error}</Alert>}
       {ok && <Alert type="success">{ok}</Alert>}

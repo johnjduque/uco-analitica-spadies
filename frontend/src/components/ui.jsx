@@ -90,6 +90,33 @@ export function Field({ label, children, hint }) {
   );
 }
 
+// Campo de contraseña con botón (ojo) para mostrar u ocultar lo escrito. Es opcional: por defecto va oculto.
+export function PasswordInput({ value, onChange, autoComplete, required, ...rest }) {
+  const [visible, setVisible] = useState(false);
+  const label = visible ? 'Ocultar contraseña' : 'Mostrar contraseña';
+  return (
+    <span className="pw-wrap">
+      <input
+        {...rest}
+        type={visible ? 'text' : 'password'}
+        autoComplete={autoComplete}
+        value={value}
+        onChange={onChange}
+        required={required}
+      />
+      <button type="button" className="pw-toggle" onClick={() => setVisible((v) => !v)}
+        aria-label={label} title={label} aria-pressed={visible}>
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2"
+          strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z" />
+          <circle cx="12" cy="12" r="3" />
+          {visible && <path d="M3 3l18 18" />}
+        </svg>
+      </button>
+    </span>
+  );
+}
+
 export function Segmented({ options, value, onChange, ariaLabel }) {
   return (
     <div className="segmented" role="radiogroup" aria-label={ariaLabel}>
