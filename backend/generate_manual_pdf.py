@@ -45,7 +45,7 @@ class NumberedCanvas(canvas.Canvas):
         self.line(54, 45, 558, 45)
 
         page_str = f"Página {self._pageNumber} de {page_count}"
-        self.drawString(54, 32, "Confidencial - Uso Interno UCO | Versión 2.0.0")
+        self.drawString(54, 32, "Confidencial - Uso Interno UCO | Versión 3.0.0")
         self.drawRightString(558, 32, page_str)
         self.restoreState()
 
@@ -181,7 +181,7 @@ def build_pdf(md_path, pdf_path):
             Paragraph("MANUAL DE USUARIO FINAL", style_title)
         ],
         [
-            Paragraph("SISTEMA ANALÍTICO DE DESERCIÓN Y PERMANENCIA ESTUDIANTIL<br/><font size=9 color='#64748b'>Metodología Oficial SPADIES 3.0 — Versión 2.0.0</font>", style_subtitle)
+            Paragraph("SISTEMA ANALÍTICO DE DESERCIÓN Y PERMANENCIA ESTUDIANTIL<br/><font size=9 color='#64748b'>Metodología Oficial SPADIES 3.0 — Versión 3.0.0</font>", style_subtitle)
         ]
     ]
     t_banner = Table(title_box_data, colWidths=[504])
@@ -200,7 +200,10 @@ def build_pdf(md_path, pdf_path):
     table_rows = []
 
     def clean_text(t):
-        t = t.replace('&', '&amp;')
+        t = t.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        # Helvetica estándar no dibuja estos símbolos: se sustituyen por texto equivalente
+        for src, dst in (('→', '&gt;'), ('☰', '(tres rayas)'), ('＋', '+'), ('⬇', ''), ('⟶', '&gt;')):
+            t = t.replace(src, dst)
         t = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', t)
         t = re.sub(r'\*(.+?)\*', r'<i>\1</i>', t)
         t = re.sub(r'`(.+?)`', r'<font face="Courier" color="#047857"><b>\1</b></font>', t)
@@ -220,7 +223,7 @@ def build_pdf(md_path, pdf_path):
         if col_count == 2:
             col_widths = [160, 344]
         elif col_count == 3:
-            col_widths = [110, 150, 244]
+            col_widths = [150, 150, 204]
         elif col_count == 4:
             col_widths = [90, 110, 130, 174]
         else:
@@ -260,8 +263,32 @@ def build_pdf(md_path, pdf_path):
         table_rows = []
         in_table = False
 
+    style_code = ParagraphStyle(
+        'Code',
+        parent=styles['Normal'],
+        fontName='Courier',
+        fontSize=8,
+        leading=11,
+        textColor=colors.HexColor("#0f172a"),
+        backColor=colors.HexColor("#f1f5f9"),
+        leftIndent=24,
+        borderPadding=3,
+        spaceAfter=0
+    )
+    in_code = False
+
     for line in lines:
         raw_l = line.strip()
+
+        if raw_l.startswith('```'):
+            in_code = not in_code
+            story.append(Spacer(1, 4))
+            continue
+        if in_code:
+            code_txt = line.strip().replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+            if code_txt:
+                story.append(Paragraph(code_txt.replace(' ', '&nbsp;'), style_code))
+            continue
 
         # Skip main markdown title since banner covers it
         if raw_l.startswith('# MANUAL DE USUARIO FINAL') or raw_l.startswith('## SISTEMA ANALÍTICO') or raw_l.startswith('### Universidad Católica'):
